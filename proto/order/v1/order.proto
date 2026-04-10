@@ -1,0 +1,103 @@
+syntax = "proto3";
+package order.v1;
+
+option go_package = "github.com/parthasarathi/go-grpc-http/gen/go/order/v1;orderv1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+// Commands (Write side of CQRS)
+service OrderCommandService {
+  rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/orders"
+      body: "*"
+    };
+  }
+
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/orders/{order_id}/cancel"
+      body: "*"
+    };
+  }
+}
+
+// Queries (Read side of CQRS)
+service OrderQueryService {
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/orders/{order_id}"
+    };
+  }
+
+  rpc ListOrdersByUser(ListOrdersByUserRequest) returns (ListOrdersByUserResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/users/{user_id}/orders"
+    };
+  }
+}
+
+// Shared item type
+message OrderItem {
+  string product_id = 1;
+  string product_name = 2;
+  int32 quantity = 3;
+  int64 price_cents = 4;
+}
+
+// PlaceOrder
+message PlaceOrderRequest {
+  string user_id = 1;
+  repeated OrderItemInput items = 2;
+  string currency = 3;
+}
+
+message OrderItemInput {
+  string product_id = 1;
+  int32 quantity = 2;
+}
+
+message PlaceOrderResponse {
+  string order_id = 1;
+  string status = 2;
+  int64 total_cents = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// CancelOrder
+message CancelOrderRequest {
+  string order_id = 1;
+  string reason = 2;
+}
+
+message CancelOrderResponse {
+  string order_id = 1;
+  string status = 2;
+}
+
+// GetOrder
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+message GetOrderResponse {
+  string order_id = 1;
+  string user_id = 2;
+  repeated OrderItem items = 3;
+  int64 total_cents = 4;
+  string currency = 5;
+  string status = 6;
+  string payment_id = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// ListOrdersByUser
+message ListOrdersByUserRequest {
+  string user_id = 1;
+}
+
+message ListOrdersByUserResponse {
+  repeated GetOrderResponse orders = 1;
+}

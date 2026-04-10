@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Go gRPC-HTTP Microservices Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #0a0e27 0%, #1a1a3e 50%, #0d1b2a 100%);
+    color: #e6edf3;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+  h1 { text-align:center; font-size:42px; font-weight:800; background:linear-gradient(90deg,#00d2ff,#7b68ee,#ff6b9d); -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin-bottom:8px; }
+  .subtitle { text-align:center; color:#8b949e; font-size:18px; margin-bottom:12px; }
+  .stats { text-align:center; margin-bottom:35px; }
+  .stat { display:inline-block; margin:0 15px; font-size:14px; color:#58a6ff; font-weight:600; }
+  .stat span { color:#f0f6fc; font-size:22px; display:block; }
+  .tech-badges { text-align:center; margin:0 auto 40px; max-width:900px; }
+  .badge { display:inline-block; padding:6px 16px; margin:5px; border-radius:25px; font-size:14px; font-weight:700; }
+  .badge-go{background:#00ADD8;color:#fff}.badge-grpc{background:#244c5a;color:#fff}.badge-proto{background:#4285F4;color:#fff}.badge-pg{background:#336791;color:#fff}.badge-redis{background:#DC382D;color:#fff}.badge-nats{background:#27AAE1;color:#fff}.badge-rabbit{background:#FF6600;color:#fff}.badge-docker{background:#2496ED;color:#fff}.badge-react{background:#61DAFB;color:#20232a}.badge-ts{background:#3178C6;color:#fff}.badge-tailwind{background:#06B6D4;color:#fff}.badge-nginx{background:#009639;color:#fff}
+  .section-title { text-align:center; font-size:26px; font-weight:700; color:#f0f6fc; margin:50px 0 20px; }
+  .section-title::after { content:''; display:block; width:60px; height:3px; background:linear-gradient(90deg,#00d2ff,#7b68ee); margin:10px auto 0; border-radius:2px; }
+
+  /* Architecture boxes */
+  .arch-container { max-width:1300px; margin:0 auto 40px; }
+  .arch-row { display:flex; justify-content:center; gap:20px; flex-wrap:wrap; }
+  .arch-box { border-radius:16px; padding:20px 24px; text-align:center; min-width:170px; backdrop-filter:blur(10px); transition:transform 0.2s,box-shadow 0.2s; cursor:pointer; position:relative; }
+  .arch-box:hover { transform:translateY(-4px); box-shadow:0 8px 30px rgba(0,0,0,0.5); }
+  .arch-box::after { content:'Click for details'; position:absolute; bottom:6px; left:0; right:0; font-size:10px; color:rgba(255,255,255,0.3); opacity:0; transition:opacity 0.2s; pointer-events:none; }
+  .arch-box:hover::after { opacity:1; }
+  .arch-box .icon { font-size:32px; margin-bottom:8px; }
+  .arch-box .name { font-size:18px; font-weight:700; margin-bottom:4px; }
+  .arch-box .desc { font-size:13px; color:#8b949e; line-height:1.4; }
+  .arch-box .port { font-size:12px; color:#58a6ff; font-weight:600; margin-top:6px; }
+  .box-client{background:rgba(88,166,255,0.1);border:2px solid #58a6ff}.box-frontend{background:rgba(97,218,251,0.1);border:2px solid #61DAFB}.box-gateway{background:rgba(240,165,0,0.1);border:2px solid #f0a500}.box-service{background:rgba(0,173,216,0.1);border:2px solid #00ADD8}.box-nats{background:rgba(39,170,225,0.1);border:2px solid #27AAE1}.box-bridge{background:rgba(255,102,0,0.08);border:2px solid #FF6600}.box-rabbit{background:rgba(255,102,0,0.12);border:2px solid #FF6600}.box-notify{background:rgba(163,113,247,0.1);border:2px solid #a371f7}.box-pg{background:rgba(51,103,145,0.15);border:2px solid #336791}.box-redis{background:rgba(220,56,45,0.1);border:2px solid #DC382D}.box-smtp{background:rgba(139,148,158,0.1);border:2px solid #484f58}
+
+  /* Arrows */
+  .arrow-section { display:flex; justify-content:center; padding:8px 0; position:relative; }
+  .arrow-down { width:3px; height:35px; position:relative; border-radius:2px; }
+  .arrow-down::after { content:''; position:absolute; bottom:-6px; left:50%; transform:translateX(-50%); border-left:7px solid transparent; border-right:7px solid transparent; }
+  .arrow-label { font-size:12px; font-weight:600; position:absolute; left:calc(50% + 15px); top:50%; transform:translateY(-50%); white-space:nowrap; }
+  .multi-arrow { display:flex; justify-content:center; gap:120px; padding:8px 0; }
+  .h-arrow { width:50px; height:3px; position:relative; display:flex; align-items:center; }
+  .h-arrow::after { content:''; position:absolute; right:-6px; top:50%; transform:translateY(-50%); border-top:7px solid transparent; border-bottom:7px solid transparent; }
+
+  /* Modal */
+  .modal-overlay { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:1000; justify-content:center; align-items:center; padding:20px; backdrop-filter:blur(8px); }
+  .modal-overlay.active { display:flex; }
+  .modal { background:linear-gradient(135deg,#161b2e,#1a2240); border:1px solid #30363d; border-radius:20px; max-width:750px; width:100%; max-height:85vh; overflow-y:auto; padding:0; position:relative; box-shadow:0 20px 60px rgba(0,0,0,0.6); }
+  .modal-header { padding:28px 32px 20px; border-bottom:1px solid #21262d; position:sticky; top:0; background:linear-gradient(135deg,#161b2e,#1a2240); border-radius:20px 20px 0 0; z-index:1; }
+  .modal-header .m-icon { font-size:40px; margin-bottom:8px; }
+  .modal-header .m-title { font-size:26px; font-weight:800; color:#f0f6fc; }
+  .modal-header .m-subtitle { font-size:14px; color:#8b949e; margin-top:4px; }
+  .modal-close { position:absolute; top:20px; right:24px; background:rgba(255,255,255,0.1); border:none; color:#8b949e; font-size:22px; width:36px; height:36px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; }
+  .modal-close:hover { background:rgba(255,255,255,0.2); color:#f0f6fc; }
+  .modal-body { padding:24px 32px 32px; }
+  .modal-section { margin-bottom:24px; }
+  .modal-section-title { font-size:15px; font-weight:700; color:#58a6ff; text-transform:uppercase; letter-spacing:1.5px; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+  .modal-section-title .s-dot { width:8px; height:8px; border-radius:50%; }
+  .modal-list { list-style:none; padding:0; }
+  .modal-list li { padding:8px 0; padding-left:20px; position:relative; font-size:15px; color:#c9d1d9; line-height:1.6; border-bottom:1px solid rgba(48,54,61,0.5); }
+  .modal-list li:last-child { border-bottom:none; }
+  .modal-list li::before { content:''; position:absolute; left:0; top:14px; width:8px; height:8px; border-radius:50%; background:#30363d; }
+  .modal-list li strong { color:#f0f6fc; }
+  .modal-tags { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .modal-tag { font-size:12px; padding:4px 12px; border-radius:12px; font-weight:600; }
+  .tag-blue{background:rgba(0,173,216,0.15);color:#00ADD8;border:1px solid rgba(0,173,216,0.3)}.tag-green{background:rgba(46,160,67,0.15);color:#3fb950;border:1px solid rgba(46,160,67,0.3)}.tag-orange{background:rgba(255,102,0,0.15);color:#FF6600;border:1px solid rgba(255,102,0,0.3)}.tag-purple{background:rgba(137,87,229,0.15);color:#a371f7;border:1px solid rgba(137,87,229,0.3)}.tag-red{background:rgba(220,56,45,0.15);color:#f85149;border:1px solid rgba(220,56,45,0.3)}.tag-gray{background:rgba(139,148,158,0.15);color:#8b949e;border:1px solid rgba(139,148,158,0.3)}
+  .modal-code { background:#0d1117; border:1px solid #21262d; border-radius:8px; padding:14px 18px; font-family:'SF Mono',Consolas,monospace; font-size:13px; color:#c9d1d9; overflow-x:auto; margin-top:8px; line-height:1.5; white-space:pre; }
+
+  /* Flow */
+  .flow-container { max-width:1200px; margin:0 auto 40px; background:rgba(22,27,44,0.8); border:1px solid #30363d; border-radius:16px; padding:40px; }
+  .flow-step { display:flex; align-items:flex-start; }
+  .flow-number { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; flex-shrink:0; margin-right:20px; }
+  .flow-num-blue{background:linear-gradient(135deg,#00ADD8,#0078d4);color:#fff}.flow-num-green{background:linear-gradient(135deg,#2ea043,#1a7f37);color:#fff}.flow-num-orange{background:linear-gradient(135deg,#f0a500,#d68b00);color:#fff}.flow-num-purple{background:linear-gradient(135deg,#8957e5,#6e40c9);color:#fff}.flow-num-red{background:linear-gradient(135deg,#DC382D,#b62324);color:#fff}.flow-num-cyan{background:linear-gradient(135deg,#27AAE1,#1a8fc4);color:#fff}
+  .flow-content { flex:1; padding-bottom:24px; }
+  .flow-content .flow-title { font-size:18px; font-weight:700; color:#f0f6fc; margin-bottom:4px; }
+  .flow-content .flow-detail { font-size:15px; color:#8b949e; line-height:1.5; }
+  .flow-svc-tag { font-size:12px; padding:3px 10px; border-radius:12px; font-weight:600; display:inline-block; margin:4px 4px 0 0; }
+  .tag-sync{background:rgba(0,173,216,0.2);color:#00ADD8;border:1px solid rgba(0,173,216,0.3)}.tag-async{background:rgba(255,102,0,0.2);color:#FF6600;border:1px solid rgba(255,102,0,0.3)}.tag-db{background:rgba(51,103,145,0.2);color:#7cb5d4;border:1px solid rgba(51,103,145,0.3)}.tag-event{background:rgba(39,170,225,0.2);color:#27AAE1;border:1px solid rgba(39,170,225,0.3)}.tag-email{background:rgba(163,113,247,0.2);color:#a371f7;border:1px solid rgba(163,113,247,0.3)}
+
+  /* Patterns */
+  .patterns-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; max-width:1200px; margin:0 auto 40px; }
+  @media(max-width:900px){.patterns-grid{grid-template-columns:repeat(2,1fr)}}
+  .pattern-card { background:rgba(22,27,44,0.8); border:1px solid #30363d; border-radius:14px; padding:24px; text-align:center; transition:transform 0.2s,border-color 0.3s; cursor:pointer; }
+  .pattern-card:hover { transform:translateY(-4px); border-color:#58a6ff; }
+  .pattern-card .p-icon { font-size:36px; margin-bottom:12px; }
+  .pattern-card .p-name { font-size:16px; font-weight:700; color:#f0f6fc; margin-bottom:6px; }
+  .pattern-card .p-desc { font-size:13px; color:#8b949e; line-height:1.5; }
+
+  /* Containers */
+  .containers-section { max-width:1200px; margin:0 auto 40px; }
+  .container-group-title { font-size:16px; font-weight:700; color:#8b949e; text-transform:uppercase; letter-spacing:2px; margin-bottom:16px; }
+  .container-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:12px; margin-bottom:30px; }
+  .container-item { background:rgba(22,27,44,0.8); border:1px solid #30363d; border-radius:12px; padding:16px 12px; text-align:center; transition:transform 0.2s; }
+  .container-item:hover { transform:translateY(-3px); }
+  .container-item .c-icon { font-size:28px; margin-bottom:6px; }
+  .container-item .c-name { font-size:14px; font-weight:700; color:#f0f6fc; }
+  .container-item .c-port { font-size:12px; color:#58a6ff; margin-top:3px; }
+  .docker-table { width:100%; border-collapse:collapse; font-size:14px; }
+  .docker-table th { text-align:left; padding:10px 14px; background:rgba(88,166,255,0.1); color:#58a6ff; font-weight:700; border-bottom:2px solid #21262d; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; }
+  .docker-table td { padding:10px 14px; border-bottom:1px solid #21262d; color:#c9d1d9; }
+  .docker-table tr:hover td { background:rgba(88,166,255,0.05); }
+  .docker-table code { background:rgba(110,118,129,0.15); padding:2px 8px; border-radius:6px; font-size:12px; color:#f0f6fc; font-family:'SF Mono',Consolas,monospace; }
+  .footer { text-align:center; color:#484f58; font-size:13px; margin-top:50px; padding-bottom:20px; }
+</style>
+</head>
+<body>
+
+<!-- ============ HEADER ============ -->
+<h1>Go gRPC-HTTP Microservices</h1>
+<div class="subtitle">E-Commerce Order Management System</div>
+<div class="stats">
+  <div class="stat"><span>16</span>Containers</div>
+  <div class="stat"><span>8</span>Design Patterns</div>
+  <div class="stat"><span>6</span>Backend Services</div>
+  <div class="stat"><span>5</span>Databases</div>
+  <div class="stat"><span>3</span>Message Brokers</div>
+</div>
+<div class="tech-badges">
+  <span class="badge badge-go">Go 1.25</span><span class="badge badge-grpc">gRPC</span><span class="badge badge-proto">Protocol Buffers</span><span class="badge badge-pg">PostgreSQL 16</span><span class="badge badge-redis">Redis 7</span><span class="badge badge-nats">NATS JetStream</span><span class="badge badge-rabbit">RabbitMQ 3</span><span class="badge badge-docker">Docker</span><span class="badge badge-react">React 19</span><span class="badge badge-ts">TypeScript</span><span class="badge badge-tailwind">Tailwind CSS</span><span class="badge badge-nginx">Nginx</span>
+</div>
+
+<!-- ============ ARCHITECTURE ============ -->
+<div class="section-title">System Architecture</div>
+<div class="arch-container">
+
+  <!-- Client -->
+  <div class="arch-row">
+    <div class="arch-box box-client" onclick="openModal('client')">
+      <div class="icon">&#x1F310;</div><div class="name">Browser / Mobile</div><div class="desc">External Clients</div>
+    </div>
+  </div>
+  <div class="arrow-section"><div class="arrow-down" style="height:40px;background:#58a6ff;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #58a6ff;"></div></div><div class="arrow-label" style="color:#58a6ff;">HTTPS</div></div>
+
+  <!-- Frontend -->
+  <div class="arch-row">
+    <div class="arch-box box-frontend" style="min-width:300px;" onclick="openModal('frontend')">
+      <div class="icon">&#x269B;&#xFE0F;</div><div class="name">Frontend</div><div class="desc">React 19 + TypeScript + Tailwind CSS<br>Served by Nginx 1.27</div><div class="port">:3000</div>
+    </div>
+  </div>
+  <div class="arrow-section"><div class="arrow-down" style="height:40px;background:#f0a500;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #f0a500;"></div></div><div class="arrow-label" style="color:#f0a500;">/api/* proxy</div></div>
+
+  <!-- Gateway -->
+  <div class="arch-row">
+    <div class="arch-box box-gateway" style="min-width:350px;" onclick="openModal('gateway')">
+      <div class="icon">&#x1F6E1;&#xFE0F;</div><div class="name">API Gateway</div><div class="desc">gRPC-Gateway &mdash; REST to gRPC Translation<br>CORS Middleware &bull; Health Check /healthz</div><div class="port">:8080</div>
+    </div>
+  </div>
+  <div class="multi-arrow">
+    <div style="text-align:center"><div class="arrow-down" style="height:40px;margin:0 auto;background:#00ADD8;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #00ADD8;"></div></div><div style="font-size:11px;color:#00ADD8;margin-top:6px;">gRPC</div></div>
+    <div style="text-align:center"><div class="arrow-down" style="height:40px;margin:0 auto;background:#00ADD8;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #00ADD8;"></div></div><div style="font-size:11px;color:#00ADD8;margin-top:6px;">gRPC</div></div>
+    <div style="text-align:center"><div class="arrow-down" style="height:40px;margin:0 auto;background:#00ADD8;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #00ADD8;"></div></div><div style="font-size:11px;color:#00ADD8;margin-top:6px;">gRPC</div></div>
+    <div style="text-align:center"><div class="arrow-down" style="height:40px;margin:0 auto;background:#00ADD8;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #00ADD8;"></div></div><div style="font-size:11px;color:#00ADD8;margin-top:6px;">gRPC</div></div>
+  </div>
+
+  <!-- Services -->
+  <div class="arch-row">
+    <div class="arch-box box-service" onclick="openModal('user')"><div class="icon">&#x1F464;</div><div class="name">User Service</div><div class="desc">Register, Login<br>JWT (Per-User Secret)<br>Profile Management</div><div class="port">:50051</div></div>
+    <div class="arch-box box-service" onclick="openModal('product')"><div class="icon">&#x1F4E6;</div><div class="name">Product Service</div><div class="desc">Catalog CRUD<br>Atomic Stock Reservation<br>Inventory Management</div><div class="port">:50052</div></div>
+    <div class="arch-box box-service" onclick="openModal('order')"><div class="icon">&#x1F4CB;</div><div class="name">Order Service</div><div class="desc">CQRS + Event Sourcing<br>Command &amp; Query Split<br>Event Store + Projector</div><div class="port">:50053</div></div>
+    <div class="arch-box box-service" onclick="openModal('payment')"><div class="icon">&#x1F4B3;</div><div class="name">Payment Service</div><div class="desc">Event-Driven Processing<br>Auto-Payment on Order<br>Refund Support</div><div class="port">:50054</div></div>
+  </div>
+
+  <!-- Arrows to DBs -->
+  <div class="multi-arrow" style="gap:120px;">
+    <div style="text-align:center"><div class="arrow-down" style="height:40px;margin:0 auto;background:#336791;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #336791;"></div></div><div style="font-size:11px;color:#336791;margin-top:2px;">SQL</div></div>
+    <div style="text-align:center"><div class="arrow-down" style="height:40px;margin:0 auto;background:#336791;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #336791;"></div></div><div style="font-size:11px;color:#336791;margin-top:2px;">SQL</div></div>
+    <div style="text-align:center"><div style="display:flex;gap:40px;justify-content:center;"><div><div class="arrow-down" style="height:40px;margin:0 auto;background:#336791;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #336791;"></div></div><div style="font-size:11px;color:#336791;margin-top:2px;">Events</div></div><div><div class="arrow-down" style="height:40px;margin:0 auto;background:#DC382D;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #DC382D;"></div></div><div style="font-size:11px;color:#DC382D;margin-top:2px;">Read Model</div></div></div></div>
+    <div style="text-align:center"><div class="arrow-down" style="height:40px;margin:0 auto;background:#336791;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #336791;"></div></div><div style="font-size:11px;color:#336791;margin-top:2px;">SQL</div></div>
+  </div>
+
+  <!-- Databases -->
+  <div class="arch-row">
+    <div class="arch-box box-pg" onclick="openModal('pg_user')"><div class="icon">&#x1F5C4;&#xFE0F;</div><div class="name">PostgreSQL</div><div class="desc">userdb</div><div class="port">:5433</div></div>
+    <div class="arch-box box-pg" onclick="openModal('pg_product')"><div class="icon">&#x1F5C4;&#xFE0F;</div><div class="name">PostgreSQL</div><div class="desc">productdb</div><div class="port">:5434</div></div>
+    <div class="arch-box box-pg" onclick="openModal('pg_order')"><div class="icon">&#x1F5C4;&#xFE0F;</div><div class="name">PostgreSQL</div><div class="desc">orderdb (event_store)</div><div class="port">:5435</div></div>
+    <div class="arch-box box-redis" onclick="openModal('redis')"><div class="icon">&#x26A1;</div><div class="name">Redis</div><div class="desc">CQRS Read Model</div><div class="port">:6379</div></div>
+    <div class="arch-box box-pg" onclick="openModal('pg_payment')"><div class="icon">&#x1F5C4;&#xFE0F;</div><div class="name">PostgreSQL</div><div class="desc">paymentdb</div><div class="port">:5436</div></div>
+  </div>
+
+  <div style="height:40px"></div>
+  <div style="text-align:center;margin-bottom:8px;"><span style="font-size:13px;color:#27AAE1;font-weight:600;letter-spacing:1px;text-transform:uppercase;">Event Bus &amp; Async Processing</span></div>
+
+  <!-- Publish arrows -->
+  <div style="display:flex;justify-content:center;margin-bottom:8px;"><div style="display:flex;gap:60px;"><div style="text-align:center;"><div style="font-size:11px;color:#27AAE1;margin-bottom:4px;">Order Svc publishes</div><div class="arrow-down" style="height:35px;margin:0 auto;background:#27AAE1;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #27AAE1;"></div></div></div><div style="text-align:center;"><div style="font-size:11px;color:#27AAE1;margin-bottom:4px;">Payment Svc publishes</div><div class="arrow-down" style="height:35px;margin:0 auto;background:#27AAE1;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #27AAE1;"></div></div></div></div></div>
+
+  <!-- NATS -->
+  <div class="arch-row"><div class="arch-box box-nats" style="min-width:400px;" onclick="openModal('nats')"><div class="icon">&#x1F4E8;</div><div class="name">NATS JetStream</div><div class="desc">Event Bus &mdash; Pub/Sub &bull; Subjects: orders.* &bull; payments.*<br>Durable Consumers &bull; At-Least-Once Delivery</div><div class="port">:4222 &bull; Monitor :8222</div></div></div>
+
+  <div class="arrow-section"><div class="arrow-down" style="height:35px;background:#FF6600;"><div style="position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border-left:7px solid transparent;border-right:7px solid transparent;border-top:8px solid #FF6600;"></div></div><div class="arrow-label" style="color:#FF6600;">Forwards events</div></div>
+
+  <!-- Notification Pipeline -->
+  <div style="display:flex;justify-content:center;gap:24px;align-items:center;flex-wrap:wrap;">
+    <div class="arch-box box-bridge" onclick="openModal('bridge')"><div class="icon">&#x1F309;</div><div class="name">Bridge Service</div><div class="desc">NATS &#x2192; RabbitMQ<br>Event Forwarder<br>(Separate Container)</div></div>
+    <div style="display:flex;align-items:center;"><div style="width:50px;height:3px;background:#FF6600;position:relative;"><div style="position:absolute;right:-6px;top:50%;transform:translateY(-50%);border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:8px solid #FF6600;"></div></div></div>
+    <div class="arch-box box-rabbit" onclick="openModal('rabbitmq')"><div class="icon">&#x1F407;</div><div class="name">RabbitMQ</div><div class="desc">Topic Exchange<br>Durable Queue<br>Management UI</div><div class="port">:5672 &bull; :15672</div></div>
+    <div style="display:flex;align-items:center;"><div style="width:50px;height:3px;background:#a371f7;position:relative;"><div style="position:absolute;right:-6px;top:50%;transform:translateY(-50%);border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:8px solid #a371f7;"></div></div></div>
+    <div class="arch-box box-notify" style="min-width:180px;" onclick="openModal('notification')"><div class="icon">&#x1F514;</div><div class="name">Notification Service</div><div class="desc">Consumes from RabbitMQ<br>Sends Email via SMTP<br>Saves Audit Log to DB</div></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div style="display:flex;align-items:center;"><div style="width:50px;height:3px;background:#484f58;position:relative;"><div style="position:absolute;right:-6px;top:50%;transform:translateY(-50%);border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:8px solid #484f58;"></div></div><div class="arch-box box-smtp" style="margin-left:12px;padding:14px 18px;min-width:auto;" onclick="openModal('smtp')"><div class="icon" style="font-size:24px;margin-bottom:4px;">&#x2709;&#xFE0F;</div><div class="name" style="font-size:15px;">Mailtrap SMTP</div><div class="desc">Email Sandbox</div></div></div>
+      <div style="display:flex;align-items:center;"><div style="width:50px;height:3px;background:#336791;position:relative;"><div style="position:absolute;right:-6px;top:50%;transform:translateY(-50%);border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:8px solid #336791;"></div></div><div class="arch-box box-pg" style="margin-left:12px;padding:14px 18px;min-width:auto;" onclick="openModal('pg_notification')"><div class="icon" style="font-size:24px;margin-bottom:4px;">&#x1F5C4;&#xFE0F;</div><div class="name" style="font-size:15px;">PostgreSQL</div><div class="desc">notificationdb</div><div class="port">:5437</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ORDER FLOW ============ -->
+<div class="section-title">Order Placement Flow</div>
+<div class="flow-container">
+  <div class="flow-step"><div class="flow-number flow-num-blue">1</div><div class="flow-content"><div class="flow-title">User Places Order</div><div class="flow-detail">Browser sends POST /api/v1/orders to Nginx, proxied to API Gateway, translated to gRPC PlaceOrder()</div><div><span class="flow-svc-tag tag-sync">Browser &#x2192; Nginx &#x2192; Gateway &#x2192; Order Service</span></div></div></div>
+  <div class="flow-step"><div class="flow-number flow-num-green">2</div><div class="flow-content"><div class="flow-title">Stock Reservation (Sync gRPC)</div><div class="flow-detail">Order Service calls Product Service to enrich items (name, price) and atomically reserve stock. Rollback all on any failure.</div><div><span class="flow-svc-tag tag-sync">Order &#x2192; Product Service</span><span class="flow-svc-tag tag-db">UPDATE stock -= N WHERE stock >= N</span></div></div></div>
+  <div class="flow-step"><div class="flow-number flow-num-orange">3</div><div class="flow-content"><div class="flow-title">Event Sourcing</div><div class="flow-detail">Order aggregate produces OrderCreatedEvent. Appended to PostgreSQL event_store with optimistic concurrency (UNIQUE aggregate_id + version).</div><div><span class="flow-svc-tag tag-db">INSERT INTO event_store (order.created, v1)</span></div></div></div>
+  <div class="flow-step"><div class="flow-number flow-num-cyan">4</div><div class="flow-content"><div class="flow-title">Publish to NATS &amp; Return Response</div><div class="flow-detail">Event published to NATS "orders.created". Client receives {order_id, status: "pending"} immediately.</div><div><span class="flow-svc-tag tag-event">NATS: orders.created</span><span class="flow-svc-tag tag-sync">Response: status = pending</span></div></div></div>
+  <div class="flow-step"><div class="flow-number flow-num-purple">5</div><div class="flow-content"><div class="flow-title">Async: Projector + Payment + Notification (Parallel)</div><div class="flow-detail"><b>Projector:</b> Writes order to Redis (status: pending) &bull; <b>Payment:</b> Creates payment, publishes payments.completed &bull; <b>Bridge &#x2192; RabbitMQ &#x2192; Notification:</b> Sends "Order Confirmed" email</div><div><span class="flow-svc-tag tag-db">Redis SET order:{id}</span><span class="flow-svc-tag tag-event">NATS: payments.completed</span><span class="flow-svc-tag tag-async">RabbitMQ &#x2192; Notification</span><span class="flow-svc-tag tag-email">SMTP: Order Confirmed</span></div></div></div>
+  <div class="flow-step"><div class="flow-number flow-num-red">6</div><div class="flow-content"><div class="flow-title">Order Marked as Paid</div><div class="flow-detail">Order Service receives payments.completed, produces OrderPaidEvent (v2). Projector updates Redis (status: paid). Client polls GET /api/v1/orders/{id} &#x2192; sees <b>paid</b>.</div><div><span class="flow-svc-tag tag-db">event_store (order.paid, v2)</span><span class="flow-svc-tag tag-db">Redis: status = paid</span><span class="flow-svc-tag tag-email">SMTP: Payment Received</span><span class="flow-svc-tag tag-sync">Client sees: PAID</span></div></div></div>
+</div>
+
+<!-- ============ PATTERNS ============ -->
+<div class="section-title">Design Patterns</div>
+<div class="patterns-grid">
+  <div class="pattern-card" onclick="openModal('pat_gateway')"><div class="p-icon">&#x1F6E1;&#xFE0F;</div><div class="p-name">API Gateway</div><div class="p-desc">gRPC-Gateway translates REST to gRPC. Single entry point.</div></div>
+  <div class="pattern-card" onclick="openModal('pat_dbperservice')"><div class="p-icon">&#x1F5C4;&#xFE0F;</div><div class="p-name">Database per Service</div><div class="p-desc">5 PostgreSQL instances. Loose coupling, independent scaling.</div></div>
+  <div class="pattern-card" onclick="openModal('pat_cqrs')"><div class="p-icon">&#x2194;&#xFE0F;</div><div class="p-name">CQRS</div><div class="p-desc">Commands write to event store. Queries read from Redis.</div></div>
+  <div class="pattern-card" onclick="openModal('pat_eventsourcing')"><div class="p-icon">&#x1F4DC;</div><div class="p-name">Event Sourcing</div><div class="p-desc">Immutable event log. State from replay. Full audit trail.</div></div>
+  <div class="pattern-card" onclick="openModal('pat_eventdriven')"><div class="p-icon">&#x1F4E8;</div><div class="p-name">Event-Driven</div><div class="p-desc">NATS JetStream pub/sub. At-least-once. Decoupled services.</div></div>
+  <div class="pattern-card" onclick="openModal('pat_jwt')"><div class="p-icon">&#x1F511;</div><div class="p-name">Per-User JWT</div><div class="p-desc">Unique signing secret per user. Instant revocation.</div></div>
+  <div class="pattern-card" onclick="openModal('pat_repo')"><div class="p-icon">&#x1F4E6;</div><div class="p-name">Repository Pattern</div><div class="p-desc">Interface abstraction. Swappable backends for testing.</div></div>
+  <div class="pattern-card" onclick="openModal('pat_health')"><div class="p-icon">&#x1F49A;</div><div class="p-name">Health Checks</div><div class="p-desc">gRPC Health v1 protocol. Docker healthchecks.</div></div>
+</div>
+
+<!-- ============ CONTAINERS ============ -->
+<div class="section-title">Docker Containers (16)</div>
+<div class="containers-section">
+
+  <div class="container-group-title">Infrastructure &mdash; Pre-built Images (8 containers)</div>
+  <table class="docker-table">
+    <tr><th>Container</th><th>Image</th><th>Port</th><th>Description</th></tr>
+    <tr><td>&#x1F5C4;&#xFE0F; postgres-user</td><td><code>postgres:16-alpine</code></td><td>:5433</td><td>User accounts, auth tokens, password hashes</td></tr>
+    <tr><td>&#x1F5C4;&#xFE0F; postgres-product</td><td><code>postgres:16-alpine</code></td><td>:5434</td><td>Product catalog, inventory, 20 seed products</td></tr>
+    <tr><td>&#x1F5C4;&#xFE0F; postgres-order</td><td><code>postgres:16-alpine</code></td><td>:5435</td><td>Event store (append-only order events)</td></tr>
+    <tr><td>&#x1F5C4;&#xFE0F; postgres-payment</td><td><code>postgres:16-alpine</code></td><td>:5436</td><td>Payment records and status tracking</td></tr>
+    <tr><td>&#x1F5C4;&#xFE0F; postgres-notification</td><td><code>postgres:16-alpine</code></td><td>:5437</td><td>Notification audit log</td></tr>
+    <tr><td>&#x26A1; redis</td><td><code>redis:7-alpine</code></td><td>:6379</td><td>CQRS read model (denormalized order views)</td></tr>
+    <tr><td>&#x1F4E8; nats</td><td><code>nats:2-alpine</code></td><td>:4222</td><td>Event bus with JetStream persistence</td></tr>
+    <tr><td>&#x1F407; rabbitmq</td><td><code>rabbitmq:3-management-alpine</code></td><td>:5672 :15672</td><td>Notification queue with management UI</td></tr>
+  </table>
+
+  <div class="container-group-title" style="margin-top:30px;">Application &mdash; Custom Dockerfiles (8 containers)</div>
+  <table class="docker-table">
+    <tr><th>Container</th><th>Dockerfile</th><th>Port</th><th>Description</th></tr>
+    <tr><td>&#x269B;&#xFE0F; frontend</td><td><code>frontend/Dockerfile</code></td><td>:3000</td><td>Node 22 build + Nginx 1.27 serve (React SPA)</td></tr>
+    <tr><td>&#x1F6E1;&#xFE0F; gateway</td><td><code>deployments/docker/gateway.Dockerfile</code></td><td>:8080</td><td>REST-to-gRPC reverse proxy, CORS</td></tr>
+    <tr><td>&#x1F464; user-service</td><td><code>deployments/docker/user-service.Dockerfile</code></td><td>:50051</td><td>Auth, JWT, registration, profile</td></tr>
+    <tr><td>&#x1F4E6; product-service</td><td><code>deployments/docker/product-service.Dockerfile</code></td><td>:50052</td><td>Catalog CRUD, atomic stock reservation</td></tr>
+    <tr><td>&#x1F4CB; order-service</td><td><code>deployments/docker/order-service.Dockerfile</code></td><td>:50053</td><td>CQRS + Event Sourcing, projector</td></tr>
+    <tr><td>&#x1F4B3; payment-service</td><td><code>deployments/docker/payment-service.Dockerfile</code></td><td>:50054</td><td>Event-driven payment processing</td></tr>
+    <tr><td>&#x1F309; bridge-service</td><td><code>deployments/docker/bridge-service.Dockerfile</code></td><td>&mdash;</td><td>NATS &#x2192; RabbitMQ event forwarder</td></tr>
+    <tr><td>&#x1F514; notification-service</td><td><code>deployments/docker/notification-service.Dockerfile</code></td><td>&mdash;</td><td>RabbitMQ consumer, SMTP email, audit log</td></tr>
+  </table>
+
+  <div style="margin-top:20px;padding:16px 20px;background:rgba(22,27,44,0.8);border:1px solid #21262d;border-radius:10px;">
+    <div style="font-size:14px;font-weight:700;color:#58a6ff;margin-bottom:8px;">Multi-Stage Build Pattern (All Go Services)</div>
+    <div class="modal-code" style="margin:0;">FROM golang:1.25-alpine AS builder    # Stage 1: Build (~1.3GB)
+COPY . .
+RUN CGO_ENABLED=0 go build -o /svc ./cmd/svc
+
+FROM alpine:3.20                       # Stage 2: Runtime (~35MB)
+COPY --from=builder /svc /svc
+ENTRYPOINT ["/svc"]                    # Static binary, zero dependencies</div>
+  </div>
+
+</div>
+<div class="footer">Go gRPC-HTTP Microservices &mdash; Built with Go 1.25 &bull; gRPC &bull; PostgreSQL &bull; Redis &bull; NATS &bull; RabbitMQ &bull; React 19 &bull; Docker</div>
+
+<!-- ============ MODAL ============ -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <div class="modal-header"><div class="m-icon" id="modalIcon"></div><div class="m-title" id="modalTitle"></div><div class="m-subtitle" id="modalSubtitle"></div></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+var details = {
+  client: {
+    icon: '&#x1F310;', title: 'Browser / Mobile Client', subtitle: 'External entry point to the system',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#58a6ff"></div>How It Works</div><ul class="modal-list">
+        <li><strong>React SPA</strong> served by Nginx at port 3000 - users interact with the frontend UI</li>
+        <li>All API calls go through <strong>/api/*</strong> which Nginx reverse-proxies to the Gateway at :8080</li>
+        <li>JWT token stored in <strong>localStorage</strong> and auto-attached to every API request via ApiClient</li>
+        <li>Client polls order status to see async updates (pending &#x2192; paid)</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>User Journey</div><ul class="modal-list">
+        <li><strong>Register</strong> &#x2192; receives auth_token (save for account recovery)</li>
+        <li><strong>Login</strong> &#x2192; receives JWT access_token (24h expiry)</li>
+        <li><strong>Browse Products</strong> &#x2192; 20 pre-seeded tech products</li>
+        <li><strong>Place Order</strong> &#x2192; select product + quantity, status starts as "pending"</li>
+        <li><strong>View Orders</strong> &#x2192; status auto-updates to "paid" within seconds</li>
+      </ul></div>
+      <div class="modal-tags"><span class="modal-tag tag-blue">React 19</span><span class="modal-tag tag-blue">TypeScript</span><span class="modal-tag tag-blue">Tailwind CSS</span><span class="modal-tag tag-gray">localStorage</span></div>`
+  },
+  frontend: {
+    icon: '&#x269B;&#xFE0F;', title: 'Frontend', subtitle: 'React SPA served by Nginx | Port :3000',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#61DAFB"></div>Architecture</div><ul class="modal-list">
+        <li><strong>Feature-based structure:</strong> src/features/auth, products, orders, dashboard, payments</li>
+        <li><strong>Shared UI components:</strong> Button, Input, Card, Badge, Alert with variant support</li>
+        <li><strong>AuthContext</strong> provides global auth state (token, userId, email, login/logout)</li>
+        <li><strong>useAsync hook</strong> handles loading/error/data states for all API calls</li>
+        <li><strong>ApiClient</strong> auto-attaches JWT from localStorage to every request</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#009639"></div>Nginx Configuration</div><ul class="modal-list">
+        <li><strong>SPA fallback:</strong> try_files $uri /index.html (React Router handles routes)</li>
+        <li><strong>API proxy:</strong> /api/* &#x2192; http://gateway:8080 (Docker internal DNS)</li>
+        <li><strong>Static caching:</strong> /assets/* cached 365 days with immutable header</li>
+        <li><strong>Gzip:</strong> enabled for JSON, JS, CSS (reduces payload ~70%)</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2496ED"></div>Docker Build</div>
+        <div class="modal-code">FROM node:22-alpine AS builder
+COPY . .
+RUN npm ci && npm run build    # Vite &#x2192; dist/
+
+FROM nginx:1.27-alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+# Final image: ~25MB</div>
+      </div>
+      <div class="modal-tags"><span class="modal-tag tag-blue">React 19</span><span class="modal-tag tag-blue">TypeScript 6</span><span class="modal-tag tag-blue">Vite 8</span><span class="modal-tag tag-blue">Tailwind 4.2</span><span class="modal-tag tag-green">Nginx 1.27</span></div>`
+  },
+  gateway: {
+    icon: '&#x1F6E1;&#xFE0F;', title: 'API Gateway', subtitle: 'REST to gRPC reverse proxy | Port :8080',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#f0a500"></div>How It Works</div><ul class="modal-list">
+        <li><strong>gRPC-Gateway</strong> auto-generates REST handlers from proto file annotations</li>
+        <li>Translates <strong>JSON &#x2194; Protobuf</strong> automatically (field name mapping: snake_case &#x2192; camelCase)</li>
+        <li>Single entry point &#x2014; all 4 backend services registered on one HTTP multiplexer</li>
+        <li>No business logic &#x2014; purely a translation and routing layer</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#00ADD8"></div>Registered Services</div><ul class="modal-list">
+        <li><strong>UserService</strong> &#x2192; user-service:50051 (Register, Login, GetUser, UpdateUser)</li>
+        <li><strong>ProductService</strong> &#x2192; product-service:50052 (CRUD, ListProducts)</li>
+        <li><strong>OrderCommandService</strong> &#x2192; order-service:50053 (PlaceOrder, CancelOrder)</li>
+        <li><strong>OrderQueryService</strong> &#x2192; order-service:50053 (GetOrder, ListOrdersByUser)</li>
+        <li><strong>PaymentService</strong> &#x2192; payment-service:50054 (GetPayment, ListPayments, Refund)</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>Middleware</div><ul class="modal-list">
+        <li><strong>CORS:</strong> Allow-Origin: *, Allow-Headers: Authorization, Content-Type</li>
+        <li><strong>Health check:</strong> GET /healthz &#x2192; {"status":"ok"}</li>
+        <li><strong>gRPC status &#x2192; HTTP:</strong> NotFound=404, InvalidArgument=400, Unauthenticated=401</li>
+      </ul></div>
+      <div class="modal-tags"><span class="modal-tag tag-orange">grpc-gateway v2.28</span><span class="modal-tag tag-blue">HTTP/2</span><span class="modal-tag tag-green">CORS</span><span class="modal-tag tag-gray">Auto-generated</span></div>`
+  },
+  user: {
+    icon: '&#x1F464;', title: 'User Service', subtitle: 'Authentication & profile management | Port :50051',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#00ADD8"></div>gRPC Methods</div><ul class="modal-list">
+        <li><strong>Register</strong> (POST /api/v1/users/register) &#x2014; Create account, generate UUID + bcrypt hash + unique auth_token</li>
+        <li><strong>Login</strong> (POST /api/v1/users/login) &#x2014; Verify bcrypt, sign JWT with user's auth_token, return access_token (24h)</li>
+        <li><strong>GetUser</strong> (GET /api/v1/users/{id}) &#x2014; Fetch profile (requires JWT)</li>
+        <li><strong>UpdateUser</strong> (PUT /api/v1/users/{id}) &#x2014; Update first/last name</li>
+        <li><strong>GetAuthToken</strong> (internal gRPC only) &#x2014; Returns user's auth_token for JWT verification by other services</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#8957e5"></div>Per-User JWT Authentication</div><ul class="modal-list">
+        <li>Each user has a unique 32-byte <strong>auth_token</strong> stored in DB</li>
+        <li>JWT is signed with <strong>HMAC-SHA256(claims, user's auth_token)</strong></li>
+        <li><strong>Revocation:</strong> change auth_token in DB &#x2192; all old JWTs instantly invalid</li>
+        <li>No token blacklist needed &#x2014; no Redis cache, no revocation table</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Database Schema</div>
+        <div class="modal-code">CREATE TABLE users (
+  id VARCHAR(36) PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,     -- bcrypt
+  auth_token TEXT NOT NULL,        -- unique JWT signing secret
+  first_name VARCHAR(100),
+  last_name VARCHAR(100),
+  created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
+);</div>
+      </div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#DC382D"></div>Interceptor Chain</div><ul class="modal-list">
+        <li><strong>1. RecoveryInterceptor</strong> &#x2014; catches panics, logs stack trace, returns codes.Internal</li>
+        <li><strong>2. LoggingInterceptor</strong> &#x2014; logs method, status code, duration (slog JSON)</li>
+        <li><strong>3. AuthInterceptor</strong> &#x2014; validates JWT: parse unverified &#x2192; resolve auth_token &#x2192; verify signature</li>
+      </ul></div>
+      <div class="modal-tags"><span class="modal-tag tag-blue">gRPC</span><span class="modal-tag tag-purple">JWT HS256</span><span class="modal-tag tag-green">bcrypt</span><span class="modal-tag tag-gray">pgx v5</span></div>`
+  },
+  product: {
+    icon: '&#x1F4E6;', title: 'Product Service', subtitle: 'Catalog & inventory management | Port :50052',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#00ADD8"></div>gRPC Methods</div><ul class="modal-list">
+        <li><strong>CreateProduct</strong> &#x2014; name, price_cents, currency, stock_quantity, SKU (unique)</li>
+        <li><strong>GetProduct / ListProducts</strong> &#x2014; public read-only, pagination support</li>
+        <li><strong>UpdateProduct / UpdateInventory</strong> &#x2014; requires JWT</li>
+        <li><strong>ReserveStock</strong> (internal) &#x2014; atomic: UPDATE stock -= N WHERE stock >= N</li>
+        <li><strong>ReleaseStock</strong> (internal) &#x2014; atomic: UPDATE stock += N (on order cancel)</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>Key Design Decisions</div><ul class="modal-list">
+        <li><strong>Price in cents (BIGINT)</strong> &#x2014; avoids float rounding ($9.99 = 999 cents)</li>
+        <li><strong>Atomic stock reservation</strong> &#x2014; single SQL UPDATE with WHERE check, no race conditions</li>
+        <li><strong>20 pre-seeded products</strong> &#x2014; migration seeds keyboards, monitors, webcams, etc.</li>
+        <li><strong>Called by Order Service</strong> &#x2014; sync gRPC for GetProduct + ReserveStock during PlaceOrder</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Database Schema</div>
+        <div class="modal-code">CREATE TABLE products (
+  id VARCHAR(36) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  price_cents BIGINT NOT NULL,    -- $9.99 = 999
+  stock_quantity INT NOT NULL DEFAULT 0,
+  sku VARCHAR(100) UNIQUE NOT NULL,
+  currency VARCHAR(3) DEFAULT 'USD'
+);</div>
+      </div>
+      <div class="modal-tags"><span class="modal-tag tag-blue">gRPC</span><span class="modal-tag tag-green">Atomic Stock</span><span class="modal-tag tag-gray">pgx v5</span><span class="modal-tag tag-orange">20 Seed Products</span></div>`
+  },
+  order: {
+    icon: '&#x1F4CB;', title: 'Order Service', subtitle: 'CQRS + Event Sourcing | Port :50053',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#00ADD8"></div>CQRS Architecture</div><ul class="modal-list">
+        <li><strong>Write side (Commands):</strong> PlaceOrder, CancelOrder &#x2192; events to PostgreSQL event_store</li>
+        <li><strong>Read side (Queries):</strong> GetOrder, ListOrdersByUser &#x2192; reads from Redis</li>
+        <li><strong>Projector:</strong> subscribes to NATS events, builds Redis read model</li>
+        <li><strong>Payment Subscriber:</strong> listens to payments.completed, marks order as paid</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#8957e5"></div>Event Sourcing</div><ul class="modal-list">
+        <li><strong>Order Aggregate</strong> &#x2014; state derived from replaying events, never stored directly</li>
+        <li><strong>Events:</strong> order.created, order.paid, order.cancelled (immutable, append-only)</li>
+        <li><strong>Optimistic concurrency:</strong> UNIQUE(aggregate_id, version) prevents duplicate writes</li>
+        <li><strong>Time travel:</strong> replay events to any point to see historical state</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#f0a500"></div>PlaceOrder Flow</div><ul class="modal-list">
+        <li>1. Enrich items via ProductService.GetProduct() (name, price)</li>
+        <li>2. Reserve stock via ProductService.ReserveStock() (rollback on failure)</li>
+        <li>3. Create aggregate &#x2192; PlaceOrder() &#x2192; OrderCreatedEvent</li>
+        <li>4. Append event to PostgreSQL event_store</li>
+        <li>5. Publish to NATS "orders.created"</li>
+        <li>6. Return {order_id, status: "pending"} to client</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Event Store Schema</div>
+        <div class="modal-code">CREATE TABLE event_store (
+  id BIGSERIAL PRIMARY KEY,
+  aggregate_id VARCHAR(36) NOT NULL,
+  event_type VARCHAR(100) NOT NULL,
+  payload JSONB NOT NULL,
+  version INT NOT NULL,
+  UNIQUE(aggregate_id, version)  -- optimistic concurrency
+);</div>
+      </div>
+      <div class="modal-tags"><span class="modal-tag tag-blue">CQRS</span><span class="modal-tag tag-purple">Event Sourcing</span><span class="modal-tag tag-orange">NATS Publisher</span><span class="modal-tag tag-red">Redis Read Model</span></div>`
+  },
+  payment: {
+    icon: '&#x1F4B3;', title: 'Payment Service', subtitle: 'Event-driven payment processing | Port :50054',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#00ADD8"></div>How It Works</div><ul class="modal-list">
+        <li><strong>No manual trigger</strong> &#x2014; payment processing is entirely event-driven</li>
+        <li>Subscribes to NATS <strong>"orders.created"</strong> via durable consumer group "payment-processor"</li>
+        <li>On receipt: create payment record (pending) &#x2192; simulate processing &#x2192; mark completed</li>
+        <li>Publishes <strong>"payments.completed"</strong> to NATS (triggers order status update)</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>gRPC Methods (Read-Only)</div><ul class="modal-list">
+        <li><strong>GetPayment</strong> (GET /api/v1/payments/{id}) &#x2014; fetch payment details</li>
+        <li><strong>ListPaymentsByOrder</strong> (GET /api/v1/orders/{id}/payments) &#x2014; payments for an order</li>
+        <li><strong>RefundPayment</strong> (POST /api/v1/payments/{id}/refund) &#x2014; requires JWT</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Database Schema</div>
+        <div class="modal-code">CREATE TABLE payments (
+  id VARCHAR(36) PRIMARY KEY,
+  order_id VARCHAR(36) NOT NULL,
+  amount_cents BIGINT NOT NULL,
+  currency VARCHAR(3) DEFAULT 'USD',
+  status VARCHAR(20) DEFAULT 'pending',
+  method VARCHAR(50) DEFAULT 'card'
+);</div>
+      </div>
+      <div class="modal-tags"><span class="modal-tag tag-orange">Event-Driven</span><span class="modal-tag tag-blue">NATS Consumer</span><span class="modal-tag tag-green">Auto-Processing</span><span class="modal-tag tag-gray">Durable Subscription</span></div>`
+  },
+  nats: {
+    icon: '&#x1F4E8;', title: 'NATS JetStream', subtitle: 'Event bus for async communication | Port :4222',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#27AAE1"></div>What Is NATS?</div><ul class="modal-list">
+        <li><strong>Lightweight message broker</strong> for pub/sub and request/reply patterns</li>
+        <li><strong>JetStream</strong> adds persistence, durable consumers, and message replay</li>
+        <li>Messages persisted to disk &#x2014; survives broker restarts</li>
+        <li><strong>At-least-once delivery</strong> with manual Ack() confirmation</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#f0a500"></div>Subjects &amp; Consumers</div><ul class="modal-list">
+        <li><strong>orders.created</strong> &#x2192; Projector, Payment Processor, Bridge (3 consumers)</li>
+        <li><strong>orders.paid</strong> &#x2192; Projector, Bridge (2 consumers)</li>
+        <li><strong>orders.cancelled</strong> &#x2192; Projector, Bridge (2 consumers)</li>
+        <li><strong>payments.completed</strong> &#x2192; Order Payment Subscriber, Bridge (2 consumers)</li>
+        <li><strong>payments.failed</strong> &#x2192; Bridge (1 consumer)</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>Why Not RabbitMQ For Everything?</div><ul class="modal-list">
+        <li>NATS is the <strong>internal event backbone</strong> &#x2014; fast, lightweight, used by all services</li>
+        <li>RabbitMQ is used only for the <strong>notification pipeline</strong> &#x2014; durable queuing with exchange routing</li>
+        <li>Bridge service translates between them (NATS &#x2192; RabbitMQ)</li>
+      </ul></div>
+      <div class="modal-tags"><span class="modal-tag tag-blue">JetStream</span><span class="modal-tag tag-green">Durable Consumers</span><span class="modal-tag tag-orange">At-Least-Once</span><span class="modal-tag tag-gray">Monitor :8222</span></div>`
+  },
+  bridge: {
+    icon: '&#x1F309;', title: 'Bridge Service', subtitle: 'NATS to RabbitMQ event forwarder',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#FF6600"></div>How It Works</div><ul class="modal-list">
+        <li><strong>Separate container</strong> &#x2014; runs independently from notification service</li>
+        <li>Subscribes to NATS subjects: <strong>orders.*</strong> and <strong>payments.*</strong></li>
+        <li>Forwards each event to RabbitMQ <strong>"notifications" exchange</strong> via ch.Publish()</li>
+        <li>Uses NATS subject as <strong>routing key</strong> (e.g., "orders.created")</li>
+        <li>Messages marked <strong>persistent</strong> (DeliveryMode: 2) &#x2014; survives RabbitMQ restart</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>Why Separate?</div><ul class="modal-list">
+        <li>If notification service is down, bridge <strong>keeps forwarding</strong> &#x2192; messages queue in RabbitMQ</li>
+        <li>When notification service starts, it <strong>drains the queue</strong> &#x2014; no messages lost</li>
+        <li>Other services don't know RabbitMQ exists &#x2014; they only publish to NATS</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Key Code</div>
+        <div class="modal-code">// bridge.go - forward()
+ch.Publish(
+  "notifications",    // exchange
+  msg.Subject,        // routing key (e.g., "orders.created")
+  false, false,
+  amqp.Publishing{
+    Body:         msg.Data,
+    DeliveryMode: amqp.Persistent,
+  },
+)</div>
+      </div>
+      <div class="modal-tags"><span class="modal-tag tag-orange">NATS Consumer</span><span class="modal-tag tag-orange">RabbitMQ Publisher</span><span class="modal-tag tag-green">Decoupled</span></div>`
+  },
+  rabbitmq: {
+    icon: '&#x1F407;', title: 'RabbitMQ', subtitle: 'Message queue for notifications | Port :5672',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#FF6600"></div>Architecture</div><ul class="modal-list">
+        <li><strong>Exchange:</strong> "notifications" (topic type) &#x2014; routes by pattern matching</li>
+        <li><strong>Queue:</strong> "notification-queue" (durable) &#x2014; survives broker restart</li>
+        <li><strong>Bindings:</strong> orders.* and payments.* &#x2192; notification-queue</li>
+        <li><strong>Consumer:</strong> notification service with manual Ack (reliable processing)</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>Why RabbitMQ Here?</div><ul class="modal-list">
+        <li><strong>Buffering:</strong> if notification service is slow, messages queue up safely</li>
+        <li><strong>Fan-out ready:</strong> add SMS queue, analytics queue without changing publishers</li>
+        <li><strong>Retry:</strong> failed messages go back to queue for reprocessing</li>
+        <li><strong>Management UI:</strong> http://localhost:15672 (guest/guest) &#x2014; see queues, messages, rates</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#8957e5"></div>Exchange vs Queue</div><ul class="modal-list">
+        <li><strong>Exchange = Router</strong> &#x2014; decides which queues get the message based on routing key</li>
+        <li><strong>Queue = Mailbox</strong> &#x2014; stores messages until consumer picks them up</li>
+        <li>Topic exchange supports wildcards: orders.* matches orders.created, orders.paid, etc.</li>
+      </ul></div>
+      <div class="modal-tags"><span class="modal-tag tag-orange">Topic Exchange</span><span class="modal-tag tag-orange">Durable Queue</span><span class="modal-tag tag-green">Manual Ack</span><span class="modal-tag tag-gray">Management UI :15672</span></div>`
+  },
+  notification: {
+    icon: '&#x1F514;', title: 'Notification Service', subtitle: 'Email sending & audit logging',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#a371f7"></div>How It Works</div><ul class="modal-list">
+        <li>Consumes from RabbitMQ <strong>"notification-queue"</strong> via ch.Consume()</li>
+        <li>Routes by <strong>routing key</strong>: orders.created, orders.paid, orders.cancelled, payments.*</li>
+        <li>For each message: <strong>sends email via SMTP</strong> (Mailtrap sandbox) + <strong>logs to PostgreSQL</strong></li>
+        <li>Manual <strong>msg.Ack()</strong> after processing &#x2014; message removed from queue only on success</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>Email Templates</div><ul class="modal-list">
+        <li><strong>orders.created</strong> &#x2192; "Order Confirmed - Your order {id} placed. Total: $amount"</li>
+        <li><strong>orders.paid</strong> &#x2192; "Payment Received - Payment {id} received for order {order_id}"</li>
+        <li><strong>orders.cancelled</strong> &#x2192; "Order Cancelled - Reason: {reason}"</li>
+        <li><strong>payments.completed</strong> &#x2192; "Payment Successful"</li>
+        <li><strong>payments.failed</strong> &#x2192; "Payment Failed"</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Audit Log Schema</div>
+        <div class="modal-code">CREATE TABLE notification_log (
+  id VARCHAR(36) PRIMARY KEY,
+  event_type VARCHAR(100) NOT NULL,
+  recipient VARCHAR(255) NOT NULL,
+  channel VARCHAR(50) DEFAULT 'email',
+  subject VARCHAR(500) NOT NULL,
+  body TEXT DEFAULT ''
+);</div>
+      </div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#f0a500"></div>SMTP Configuration</div><ul class="modal-list">
+        <li><strong>Provider:</strong> Mailtrap (sandbox &#x2014; emails captured in dashboard, not delivered to real inbox)</li>
+        <li><strong>Fallback:</strong> if SMTP not configured, logs "EMAIL (mock)" to console</li>
+        <li><strong>Swappable:</strong> change env vars to Gmail, SendGrid, Resend for real delivery</li>
+        <li><strong>Rate limited:</strong> 1.5s delay between sends (Mailtrap free tier limit)</li>
+      </ul></div>
+      <div class="modal-tags"><span class="modal-tag tag-purple">RabbitMQ Consumer</span><span class="modal-tag tag-green">SMTP</span><span class="modal-tag tag-gray">Mailtrap</span><span class="modal-tag tag-blue">Audit Log</span></div>`
+  },
+  redis: {
+    icon: '&#x26A1;', title: 'Redis', subtitle: 'CQRS read model for orders | Port :6379',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#DC382D"></div>Role In This Project</div><ul class="modal-list">
+        <li><strong>NOT a cache</strong> &#x2014; it's the CQRS read-side database for the order service</li>
+        <li>Holds <strong>denormalized order views</strong> built by the projector from events</li>
+        <li>All read queries (GetOrder, ListOrdersByUser) go <strong>directly to Redis</strong></li>
+        <li>No fallback to PostgreSQL &#x2014; if Redis is down, read queries fail</li>
+        <li><strong>Disposable:</strong> flush Redis, replay events from event_store &#x2192; fully rebuilt</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#f0a500"></div>Data Structure</div>
+        <div class="modal-code">KEY:   order:{order_id}
+VALUE: {
+  "order_id": "uuid",
+  "user_id": "uuid",
+  "items": [{product_id, name, qty, price}],
+  "total_cents": 1998,
+  "status": "pending" | "paid" | "cancelled",
+  "payment_id": "uuid"
+}</div>
+      </div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>Projector Updates</div><ul class="modal-list">
+        <li><strong>orders.created</strong> &#x2192; Redis SET order:{id} with status: "pending"</li>
+        <li><strong>orders.paid</strong> &#x2192; Redis UPDATE status to "paid", set payment_id</li>
+        <li><strong>orders.cancelled</strong> &#x2192; Redis UPDATE status to "cancelled"</li>
+      </ul></div>
+      <div class="modal-tags"><span class="modal-tag tag-red">Redis 7</span><span class="modal-tag tag-blue">CQRS Read Model</span><span class="modal-tag tag-green">Sub-millisecond reads</span><span class="modal-tag tag-gray">Disposable</span></div>`
+  },
+  smtp: {
+    icon: '&#x2709;&#xFE0F;', title: 'Mailtrap SMTP', subtitle: 'Email sandbox for development',
+    body: `
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#484f58"></div>What Is Mailtrap?</div><ul class="modal-list">
+        <li><strong>Email testing sandbox</strong> &#x2014; captures emails in a virtual inbox, does NOT deliver to real addresses</li>
+        <li>See full email content (subject, body, headers) in the <strong>Mailtrap web dashboard</strong></li>
+        <li>Free tier: 100 emails/month, rate limited to ~1 email/second</li>
+        <li>View at: https://mailtrap.io &#x2192; Email Testing &#x2192; Inboxes</li>
+      </ul></div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>Configuration</div>
+        <div class="modal-code">SMTP_HOST: sandbox.smtp.mailtrap.io
+SMTP_PORT: 587
+SMTP_USER: 259021ba0402a6
+SMTP_PASSWORD: ****
+SMTP_FROM: notifications@go-grpc-http.dev</div>
+      </div>
+      <div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#f0a500"></div>For Real Delivery</div><ul class="modal-list">
+        <li><strong>Gmail:</strong> smtp.gmail.com:587 (requires App Password + 2FA)</li>
+        <li><strong>Resend:</strong> smtp.resend.com:465 (free 100/day, real delivery)</li>
+        <li><strong>SendGrid:</strong> smtp.sendgrid.net:587 (free 100/day)</li>
+        <li>Just change env vars &#x2014; code stays the same</li>
+      </ul></div>
+      <div class="modal-tags"><span class="modal-tag tag-gray">Sandbox</span><span class="modal-tag tag-green">Free Tier</span><span class="modal-tag tag-blue">SMTP</span><span class="modal-tag tag-orange">Swappable</span></div>`
+  },
+  pg_user: { icon: '&#x1F5C4;&#xFE0F;', title: 'PostgreSQL: userdb', subtitle: 'User data | Port :5433', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Tables</div><ul class="modal-list"><li><strong>users</strong> &#x2014; id, email (unique), password_hash (bcrypt), auth_token (JWT secret), first_name, last_name</li></ul></div><div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>Indexes</div><ul class="modal-list"><li><strong>idx_users_email</strong> &#x2014; fast login lookup by email</li><li><strong>idx_users_auth_token</strong> &#x2014; partial index WHERE auth_token != '' for JWT verification</li></ul></div><div class="modal-tags"><span class="modal-tag tag-blue">PostgreSQL 16</span><span class="modal-tag tag-gray">pgx v5</span><span class="modal-tag tag-green">Connection Pooling</span></div>` },
+  pg_product: { icon: '&#x1F5C4;&#xFE0F;', title: 'PostgreSQL: productdb', subtitle: 'Product catalog | Port :5434', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Tables</div><ul class="modal-list"><li><strong>products</strong> &#x2014; id, name, description, price_cents (BIGINT), stock_quantity, sku (unique), currency</li><li><strong>20 pre-seeded products</strong> via migration: keyboards, monitors, webcams, etc.</li></ul></div><div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#f0a500"></div>Atomic Stock</div><ul class="modal-list"><li>UPDATE stock_quantity = stock_quantity - N WHERE stock_quantity >= N</li><li>Single SQL statement &#x2014; no race conditions, no read-modify-write</li></ul></div><div class="modal-tags"><span class="modal-tag tag-blue">PostgreSQL 16</span><span class="modal-tag tag-green">Atomic Updates</span></div>` },
+  pg_order: { icon: '&#x1F5C4;&#xFE0F;', title: 'PostgreSQL: orderdb', subtitle: 'Event store (append-only) | Port :5435', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Tables</div><ul class="modal-list"><li><strong>event_store</strong> &#x2014; aggregate_id, event_type, payload (JSONB), version</li><li><strong>No orders table</strong> &#x2014; order state is derived by replaying events</li><li><strong>UNIQUE(aggregate_id, version)</strong> &#x2014; optimistic concurrency control</li></ul></div><div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#8957e5"></div>Event Types</div><ul class="modal-list"><li><strong>order.created</strong> &#x2014; {order_id, user_id, items[], total_cents, currency}</li><li><strong>order.paid</strong> &#x2014; {order_id, payment_id, paid_at}</li><li><strong>order.cancelled</strong> &#x2014; {order_id, reason, cancelled_at}</li></ul></div><div class="modal-tags"><span class="modal-tag tag-purple">Event Sourcing</span><span class="modal-tag tag-blue">JSONB Payload</span><span class="modal-tag tag-green">Immutable</span></div>` },
+  pg_payment: { icon: '&#x1F5C4;&#xFE0F;', title: 'PostgreSQL: paymentdb', subtitle: 'Payment records | Port :5436', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Tables</div><ul class="modal-list"><li><strong>payments</strong> &#x2014; id, order_id, amount_cents, currency, status (pending/completed/failed/refunded), method</li></ul></div><div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#f0a500"></div>Status Lifecycle</div><ul class="modal-list"><li><strong>pending</strong> &#x2192; created when orders.created event received</li><li><strong>completed</strong> &#x2192; after simulated processing succeeds</li><li><strong>refunded</strong> &#x2192; when RefundPayment RPC called</li></ul></div><div class="modal-tags"><span class="modal-tag tag-blue">PostgreSQL 16</span><span class="modal-tag tag-orange">Event-Driven</span></div>` },
+  pg_notification: { icon: '&#x1F5C4;&#xFE0F;', title: 'PostgreSQL: notificationdb', subtitle: 'Audit log | Port :5437', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>Tables</div><ul class="modal-list"><li><strong>notification_log</strong> &#x2014; id, event_type, recipient, channel, subject, body, created_at</li><li>Every email sent (or attempted) is recorded here as an audit trail</li><li>Can query: "what notifications were sent for order X?"</li></ul></div><div class="modal-tags"><span class="modal-tag tag-blue">PostgreSQL 16</span><span class="modal-tag tag-purple">Audit Trail</span></div>` },
+  pat_gateway: { icon: '&#x1F6E1;&#xFE0F;', title: 'API Gateway Pattern', subtitle: 'Single entry point for all clients', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#f0a500"></div>What &amp; Why</div><ul class="modal-list"><li><strong>Problem:</strong> Clients need REST, services speak gRPC &#x2014; different protocols</li><li><strong>Solution:</strong> gRPC-Gateway auto-generates REST handlers from proto annotations</li><li><strong>Single source of truth:</strong> proto files define both REST + gRPC APIs</li><li><strong>Benefits:</strong> one URL to secure, monitor, rate-limit; services don't handle HTTP</li></ul></div><div class="modal-tags"><span class="modal-tag tag-orange">grpc-gateway v2</span><span class="modal-tag tag-blue">Auto-Generated</span></div>` },
+  pat_dbperservice: { icon: '&#x1F5C4;&#xFE0F;', title: 'Database per Service', subtitle: '5 PostgreSQL instances', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#336791"></div>What &amp; Why</div><ul class="modal-list"><li><strong>Problem:</strong> Shared database creates tight coupling between services</li><li><strong>Solution:</strong> Each service owns its database &#x2014; no shared tables</li><li><strong>Benefits:</strong> Independent schema evolution, fault isolation, independent scaling</li><li><strong>Trade-off:</strong> Cross-service queries impossible &#x2014; use events for consistency</li></ul></div><div class="modal-tags"><span class="modal-tag tag-blue">Loose Coupling</span><span class="modal-tag tag-green">Independent Scaling</span></div>` },
+  pat_cqrs: { icon: '&#x2194;&#xFE0F;', title: 'CQRS Pattern', subtitle: 'Separate read and write models', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#8957e5"></div>What &amp; Why</div><ul class="modal-list"><li><strong>Problem:</strong> Order writes are complex (stock check, events), reads are simple lookups</li><li><strong>Solution:</strong> Write to PostgreSQL event_store, read from Redis (denormalized views)</li><li><strong>Write model:</strong> optimized for consistency (event store + aggregate)</li><li><strong>Read model:</strong> optimized for speed (Redis key-value, sub-millisecond)</li><li><strong>Projector:</strong> subscribes to events, builds Redis read model asynchronously</li></ul></div><div class="modal-tags"><span class="modal-tag tag-purple">Command Side</span><span class="modal-tag tag-red">Query Side</span><span class="modal-tag tag-green">Eventually Consistent</span></div>` },
+  pat_eventsourcing: { icon: '&#x1F4DC;', title: 'Event Sourcing', subtitle: 'State from replaying events', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#8957e5"></div>What &amp; Why</div><ul class="modal-list"><li><strong>Problem:</strong> CRUD loses history &#x2014; UPDATE overwrites previous state</li><li><strong>Solution:</strong> Never update/delete &#x2014; only append immutable events</li><li><strong>Current state:</strong> replay all events for an aggregate in order</li><li><strong>Benefits:</strong> Complete audit trail, time travel, event replay, no data loss</li><li><strong>Concurrency:</strong> UNIQUE(aggregate_id, version) prevents conflicts</li></ul></div><div class="modal-tags"><span class="modal-tag tag-purple">Immutable Events</span><span class="modal-tag tag-blue">Audit Trail</span><span class="modal-tag tag-green">Time Travel</span></div>` },
+  pat_eventdriven: { icon: '&#x1F4E8;', title: 'Event-Driven Architecture', subtitle: 'NATS JetStream pub/sub', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#27AAE1"></div>What &amp; Why</div><ul class="modal-list"><li><strong>Problem:</strong> Sync calls between services create tight coupling and cascading failures</li><li><strong>Solution:</strong> Publish events to NATS, interested services subscribe independently</li><li><strong>Decoupling:</strong> Order service doesn't know payment/notification services exist</li><li><strong>Fault tolerance:</strong> If subscriber is down, durable consumer replays on recovery</li><li><strong>Scalability:</strong> Multiple instances share consumer group (load balancing)</li></ul></div><div class="modal-tags"><span class="modal-tag tag-blue">NATS JetStream</span><span class="modal-tag tag-green">Durable Consumers</span><span class="modal-tag tag-orange">At-Least-Once</span></div>` },
+  pat_jwt: { icon: '&#x1F511;', title: 'Per-User JWT Secret', subtitle: 'Instant revocation without blacklist', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#8957e5"></div>What &amp; Why</div><ul class="modal-list"><li><strong>Problem:</strong> Shared JWT secret &#x2014; if leaked, all tokens forged; revocation needs blacklist</li><li><strong>Solution:</strong> Each user's auth_token is the JWT signing key</li><li><strong>Revocation:</strong> UPDATE auth_token = new_random() &#x2192; all old JWTs instantly invalid</li><li><strong>No blacklist needed:</strong> no Redis set of revoked tokens, no cache sync</li><li><strong>Verification:</strong> parse unverified &#x2192; get user_id &#x2192; resolve auth_token &#x2192; verify signature</li></ul></div><div class="modal-tags"><span class="modal-tag tag-purple">HMAC-SHA256</span><span class="modal-tag tag-green">Instant Revocation</span><span class="modal-tag tag-blue">No Blacklist</span></div>` },
+  pat_repo: { icon: '&#x1F4E6;', title: 'Repository Pattern', subtitle: 'Interface-based data access', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>What &amp; Why</div><ul class="modal-list"><li><strong>Problem:</strong> Business logic tightly coupled to database queries</li><li><strong>Solution:</strong> Define repository interface, implement with PostgreSQL (or mock for tests)</li><li><strong>Benefits:</strong> Swap database without changing service logic, easy unit testing</li><li><strong>Dependency Injection:</strong> Service receives repository via constructor, not global state</li></ul></div><div class="modal-tags"><span class="modal-tag tag-blue">Go Interfaces</span><span class="modal-tag tag-green">Testable</span><span class="modal-tag tag-gray">DI</span></div>` },
+  pat_health: { icon: '&#x1F49A;', title: 'Health Check Protocol', subtitle: 'gRPC Health v1 + Docker healthchecks', body: `<div class="modal-section"><div class="modal-section-title"><div class="s-dot" style="background:#2ea043"></div>What &amp; Why</div><ul class="modal-list"><li><strong>gRPC Health v1:</strong> standardized health check service registered on all gRPC servers</li><li><strong>Checks:</strong> PostgreSQL pool.Ping(), Redis rdb.Ping() &#x2014; verifies real connectivity</li><li><strong>Gateway:</strong> GET /healthz &#x2192; 200 {"status":"ok"}</li><li><strong>Docker:</strong> pg_isready healthcheck ensures services don't start before DB is ready</li><li><strong>depends_on: condition: service_healthy</strong> &#x2014; ordered startup in docker-compose</li></ul></div><div class="modal-tags"><span class="modal-tag tag-green">gRPC Health v1</span><span class="modal-tag tag-blue">Docker Healthcheck</span><span class="modal-tag tag-gray">Readiness Probes</span></div>` },
+};
+
+function openModal(key) {
+  const d = details[key];
+  if (!d) return;
+  document.getElementById('modalIcon').innerHTML = d.icon;
+  document.getElementById('modalTitle').textContent = d.title;
+  document.getElementById('modalSubtitle').textContent = d.subtitle;
+  document.getElementById('modalBody').innerHTML = d.body;
+  document.getElementById('modalOverlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+</script>
+</body>
+</html>

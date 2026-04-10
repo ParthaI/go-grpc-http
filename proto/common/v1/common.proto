@@ -1,0 +1,20 @@
+syntax = "proto3";
+package common.v1;
+
+option go_package = "github.com/parthasarathi/go-grpc-http/gen/go/common/v1;commonv1";
+
+message Pagination {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+message PaginationResponse {
+  int32 total_count = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message Money {
+  int64 amount_cents = 1;
+  string currency = 2;
+}

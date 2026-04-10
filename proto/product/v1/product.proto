@@ -1,0 +1,150 @@
+syntax = "proto3";
+package product.v1;
+
+option go_package = "github.com/parthasarathi/go-grpc-http/gen/go/product/v1;productv1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "common/v1/common.proto";
+
+service ProductService {
+  // Public endpoints (exposed via gateway)
+  rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/products"
+      body: "*"
+    };
+  }
+
+  rpc GetProduct(GetProductRequest) returns (GetProductResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/products/{product_id}"
+    };
+  }
+
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/products"
+    };
+  }
+
+  rpc UpdateProduct(UpdateProductRequest) returns (UpdateProductResponse) {
+    option (google.api.http) = {
+      put: "/api/v1/products/{product_id}"
+      body: "*"
+    };
+  }
+
+  rpc UpdateInventory(UpdateInventoryRequest) returns (UpdateInventoryResponse) {
+    option (google.api.http) = {
+      put: "/api/v1/products/{product_id}/inventory"
+      body: "*"
+    };
+  }
+
+  // Internal RPCs (called by order-service via gRPC, no HTTP annotation)
+  rpc ReserveStock(ReserveStockRequest) returns (ReserveStockResponse);
+  rpc ReleaseStock(ReleaseStockRequest) returns (ReleaseStockResponse);
+}
+
+// CreateProduct
+message CreateProductRequest {
+  string name = 1;
+  string description = 2;
+  int64 price_cents = 3;
+  string currency = 4;
+  int32 stock_quantity = 5;
+  string sku = 6;
+}
+
+message CreateProductResponse {
+  string product_id = 1;
+  string name = 2;
+  int64 price_cents = 3;
+  string currency = 4;
+  int32 stock_quantity = 5;
+  string sku = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// GetProduct
+message GetProductRequest {
+  string product_id = 1;
+}
+
+message GetProductResponse {
+  string product_id = 1;
+  string name = 2;
+  string description = 3;
+  int64 price_cents = 4;
+  string currency = 5;
+  int32 stock_quantity = 6;
+  string sku = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// ListProducts
+message ListProductsRequest {
+  common.v1.Pagination pagination = 1;
+}
+
+message ListProductsResponse {
+  repeated GetProductResponse products = 1;
+  common.v1.PaginationResponse pagination = 2;
+}
+
+// UpdateProduct
+message UpdateProductRequest {
+  string product_id = 1;
+  string name = 2;
+  string description = 3;
+  int64 price_cents = 4;
+  string currency = 5;
+}
+
+message UpdateProductResponse {
+  string product_id = 1;
+  string name = 2;
+  string description = 3;
+  int64 price_cents = 4;
+  string currency = 5;
+  int32 stock_quantity = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// UpdateInventory
+message UpdateInventoryRequest {
+  string product_id = 1;
+  int32 quantity = 2;
+}
+
+message UpdateInventoryResponse {
+  string product_id = 1;
+  int32 stock_quantity = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+// ReserveStock (internal gRPC)
+message ReserveStockRequest {
+  string product_id = 1;
+  int32 quantity = 2;
+  string order_id = 3;
+}
+
+message ReserveStockResponse {
+  bool success = 1;
+  int32 remaining_stock = 2;
+}
+
+// ReleaseStock (internal gRPC)
+message ReleaseStockRequest {
+  string product_id = 1;
+  int32 quantity = 2;
+  string order_id = 3;
+}
+
+message ReleaseStockResponse {
+  bool success = 1;
+  int32 remaining_stock = 2;
+}

@@ -1,0 +1,64 @@
+syntax = "proto3";
+package payment.v1;
+
+option go_package = "github.com/parthasarathi/go-grpc-http/gen/go/payment/v1;paymentv1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+service PaymentService {
+  rpc GetPayment(GetPaymentRequest) returns (GetPaymentResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/payments/{payment_id}"
+    };
+  }
+
+  rpc ListPaymentsByOrder(ListPaymentsByOrderRequest) returns (ListPaymentsByOrderResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/orders/{order_id}/payments"
+    };
+  }
+
+  rpc RefundPayment(RefundPaymentRequest) returns (RefundPaymentResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/payments/{payment_id}/refund"
+      body: "*"
+    };
+  }
+}
+
+// GetPayment
+message GetPaymentRequest {
+  string payment_id = 1;
+}
+
+message GetPaymentResponse {
+  string payment_id = 1;
+  string order_id = 2;
+  int64 amount_cents = 3;
+  string currency = 4;
+  string status = 5;
+  string method = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// ListPaymentsByOrder
+message ListPaymentsByOrderRequest {
+  string order_id = 1;
+}
+
+message ListPaymentsByOrderResponse {
+  repeated GetPaymentResponse payments = 1;
+}
+
+// RefundPayment
+message RefundPaymentRequest {
+  string payment_id = 1;
+  string reason = 2;
+}
+
+message RefundPaymentResponse {
+  string payment_id = 1;
+  string status = 2;
+}

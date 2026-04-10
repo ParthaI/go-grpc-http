@@ -1,0 +1,241 @@
+services:
+  # --- Infrastructure ---
+  postgres-user:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: userdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata-user:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-product:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: productdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata-product:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-order:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orderdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata-order:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-payment:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: paymentdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - pgdata-payment:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-notification:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: notificationdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5437:5432"
+    volumes:
+      - pgdata-notification:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  nats:
+    image: nats:2-alpine
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"     # AMQP protocol
+      - "15672:15672"   # Management UI (guest/guest)
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Frontend ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - gateway
+
+  # --- Application Services ---
+  gateway:
+    build:
+      context: .
+      dockerfile: deployments/docker/gateway.Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      HTTP_PORT: "8080"
+      USER_SERVICE_ADDR: user-service:50051
+      PRODUCT_SERVICE_ADDR: product-service:50052
+      ORDER_SERVICE_ADDR: order-service:50053
+      PAYMENT_SERVICE_ADDR: payment-service:50054
+    depends_on:
+      - user-service
+      - product-service
+      - order-service
+      - payment-service
+
+  user-service:
+    build:
+      context: .
+      dockerfile: deployments/docker/user-service.Dockerfile
+    environment:
+      GRPC_PORT: "50051"
+      DATABASE_URL: postgres://postgres:postgres@postgres-user:5432/userdb?sslmode=disable
+    depends_on:
+      postgres-user:
+        condition: service_healthy
+
+  product-service:
+    build:
+      context: .
+      dockerfile: deployments/docker/product-service.Dockerfile
+    environment:
+      GRPC_PORT: "50052"
+      DATABASE_URL: postgres://postgres:postgres@postgres-product:5432/productdb?sslmode=disable
+      USER_SERVICE_ADDR: user-service:50051
+    depends_on:
+      postgres-product:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+
+  order-service:
+    build:
+      context: .
+      dockerfile: deployments/docker/order-service.Dockerfile
+    environment:
+      GRPC_PORT: "50053"
+      DATABASE_URL: postgres://postgres:postgres@postgres-order:5432/orderdb?sslmode=disable
+      REDIS_ADDR: redis:6379
+      NATS_URL: nats://nats:4222
+      PRODUCT_SERVICE_ADDR: product-service:50052
+      USER_SERVICE_ADDR: user-service:50051
+    depends_on:
+      postgres-order:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      nats:
+        condition: service_started
+      user-service:
+        condition: service_started
+      product-service:
+        condition: service_started
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: deployments/docker/payment-service.Dockerfile
+    environment:
+      GRPC_PORT: "50054"
+      DATABASE_URL: postgres://postgres:postgres@postgres-payment:5432/paymentdb?sslmode=disable
+      NATS_URL: nats://nats:4222
+      USER_SERVICE_ADDR: user-service:50051
+    depends_on:
+      postgres-payment:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      user-service:
+        condition: service_started
+
+  bridge-service:
+    build:
+      context: .
+      dockerfile: deployments/docker/bridge-service.Dockerfile
+    environment:
+      NATS_URL: nats://nats:4222
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      nats:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: deployments/docker/notification-service.Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres-notification:5432/notificationdb?sslmode=disable
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      # SMTP config — set these to enable real email sending (see .env.example)
+      # SMTP_HOST: sandbox.smtp.mailtrap.io
+      # SMTP_PORT: "587"
+      # SMTP_USER: ""
+      # SMTP_PASSWORD: ""
+      # SMTP_FROM: notifications@go-grpc-http.dev
+      # NOTIFY_EMAIL: test@go-grpc-http.dev
+    depends_on:
+      postgres-notification:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  pgdata-user:
+  pgdata-product:
+  pgdata-order:
+  pgdata-payment:
+  pgdata-notification:

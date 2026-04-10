@@ -1,0 +1,32 @@
+package interceptors
+
+import (
+	"context"
+	"log/slog"
+	"runtime/debug"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+func RecoveryInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req any,
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (resp any, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.ErrorContext(ctx, "panic recovered",
+					slog.Any("panic", r),
+					slog.String("method", info.FullMethod),
+					slog.String("stack", string(debug.Stack())),
+				)
+				err = status.Errorf(codes.Internal, "internal error")
+			}
+		}()
+		return handler(ctx, req)
+	}
+}

@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RabbitMQ vs MQTT vs NATS — Visual Comparison</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, sans-serif; }
+  body {
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    min-height: 100vh;
+    padding: 40px 20px;
+    color: #fff;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  h1 {
+    text-align: center;
+    font-size: 2.4rem;
+    margin-bottom: 10px;
+    background: linear-gradient(90deg, #ff9a00, #ff6a00, #ee0979);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle { text-align: center; color: #b0c4de; margin-bottom: 10px; font-size: 1rem; }
+  .hint {
+    text-align: center;
+    color: #ffd700;
+    margin-bottom: 30px;
+    font-size: 0.9rem;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 25px;
+    margin-bottom: 50px;
+  }
+  .card {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 16px;
+    padding: 25px;
+    backdrop-filter: blur(10px);
+    transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
+    cursor: pointer;
+    position: relative;
+  }
+  .card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    border-color: #ffd700;
+  }
+  .card::after {
+    content: "👆 Click to see Go code";
+    position: absolute;
+    bottom: 10px;
+    right: 15px;
+    font-size: 0.7rem;
+    color: #ffd700;
+    opacity: 0.8;
+  }
+  .card h2 { font-size: 1.5rem; margin-bottom: 15px; }
+  .rabbit h2 { color: #ff7a00; }
+  .mqtt h2 { color: #66d9ef; }
+  .nats h2 { color: #27d67b; }
+
+  .flow {
+    background: rgba(0,0,0,0.3);
+    border-radius: 10px;
+    padding: 15px;
+    margin: 15px 0;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: #fdfdfd;
+  }
+  .node {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    margin: 2px;
+    font-weight: bold;
+  }
+  .producer { background: #ff6b6b; }
+  .broker { background: #feca57; color: #222; }
+  .consumer { background: #48dbfb; color: #222; }
+  .arrow { color: #fff; margin: 0 6px; }
+
+  ul { list-style: none; padding-left: 0; }
+  ul li {
+    padding: 6px 0;
+    border-bottom: 1px dashed rgba(255,255,255,0.1);
+    font-size: 0.92rem;
+  }
+  ul li:before { content: "▹ "; color: #ffd700; }
+
+  .benchmarks {
+    background: rgba(255,255,255,0.05);
+    border-radius: 16px;
+    padding: 30px;
+    margin-bottom: 40px;
+  }
+  .benchmarks h2 {
+    text-align: center;
+    margin-bottom: 25px;
+    color: #ffd700;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    color: #fff;
+  }
+  th, td {
+    padding: 12px;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,255,255,0.15);
+  }
+  th { background: rgba(255,255,255,0.1); color: #ffd700; }
+  tr:hover { background: rgba(255,255,255,0.05); }
+
+  .decision {
+    background: rgba(255,255,255,0.05);
+    border-radius: 16px;
+    padding: 30px;
+  }
+  .decision h2 { text-align: center; color: #ffd700; margin-bottom: 20px; }
+  .decision-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+  }
+  .decision-item {
+    padding: 20px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 10px;
+    border-left: 4px solid #ffd700;
+    transition: transform 0.2s, background 0.2s;
+  }
+  .decision-item:hover {
+    transform: translateY(-3px);
+    background: rgba(0,0,0,0.5);
+  }
+  .decision-item strong {
+    color: #ffd700;
+    font-size: 1.05rem;
+    display: block;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed rgba(255,215,0,0.3);
+  }
+  .decision-item ul { margin-top: 8px; }
+  .decision-item ul li {
+    padding: 5px 0;
+    font-size: 0.88rem;
+    border-bottom: none;
+    line-height: 1.5;
+  }
+  .decision-item ul li:before { content: "✓ "; color: #27d67b; font-weight: bold; }
+  .use-case {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(255,255,255,0.1);
+    font-size: 0.82rem;
+    color: #b0c4de;
+    font-style: italic;
+  }
+  .avoid {
+    margin-top: 8px;
+    font-size: 0.82rem;
+    color: #ff9999;
+  }
+  .avoid:before { content: "✗ Avoid: "; font-weight: bold; }
+
+  footer {
+    text-align: center;
+    margin-top: 40px;
+    color: #88a;
+    font-size: 0.85rem;
+  }
+
+  /* Modal Styles */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85);
+    backdrop-filter: blur(5px);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    animation: fadeIn 0.3s ease;
+  }
+  .modal-overlay.active { display: flex; }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .modal {
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    border-radius: 16px;
+    max-width: 900px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 30px;
+    border: 1px solid rgba(255,215,0,0.3);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    animation: slideUp 0.4s ease;
+    position: relative;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(50px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .modal h2 {
+    font-size: 1.8rem;
+    margin-bottom: 10px;
+    color: #ffd700;
+  }
+  .modal .desc {
+    color: #b0c4de;
+    margin-bottom: 20px;
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+  .close-btn {
+    position: absolute;
+    top: 15px;
+    right: 20px;
+    background: #ff4757;
+    border: none;
+    color: white;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 1.2rem;
+    cursor: pointer;
+    font-weight: bold;
+    transition: transform 0.2s;
+  }
+  .close-btn:hover { transform: rotate(90deg) scale(1.1); }
+
+  .code-section { margin-bottom: 25px; }
+  .code-section h3 {
+    color: #66d9ef;
+    margin-bottom: 10px;
+    font-size: 1.1rem;
+    padding-bottom: 5px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  pre {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 18px;
+    overflow-x: auto;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: #e6edf3;
+    position: relative;
+  }
+  pre code { color: #e6edf3; }
+  .keyword { color: #ff7b72; }
+  .string { color: #a5d6ff; }
+  .comment { color: #8b949e; font-style: italic; }
+  .func { color: #d2a8ff; }
+  .type { color: #79c0ff; }
+
+  .copy-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(255,215,0,0.2);
+    border: 1px solid #ffd700;
+    color: #ffd700;
+    padding: 4px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all 0.2s;
+  }
+  .copy-btn:hover { background: #ffd700; color: #000; }
+
+  .install-cmd {
+    background: #000;
+    padding: 10px 15px;
+    border-radius: 6px;
+    font-family: monospace;
+    color: #27d67b;
+    margin-bottom: 15px;
+    font-size: 0.85rem;
+    border-left: 3px solid #27d67b;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>🚀 RabbitMQ vs MQTT vs NATS</h1>
+  <p class="subtitle">How modern messaging systems work — a visual comparison</p>
+  <p class="hint">✨ Click on any card below to view the full Go implementation ✨</p>
+
+  <div class="grid">
+
+    <!-- RabbitMQ -->
+    <div class="card rabbit" onclick="openModal('rabbitmq')">
+      <h2>🐰 RabbitMQ</h2>
+      <p><em>The Reliable Enterprise Broker (AMQP)</em></p>
+      <div class="flow">
+        <span class="node producer">Producer</span>
+        <span class="arrow">→</span>
+        <span class="node broker">Exchange</span>
+        <span class="arrow">→</span>
+        <span class="node broker">Queue</span>
+        <span class="arrow">→</span>
+        <span class="node consumer">Consumer</span>
+      </div>
+      <ul>
+        <li>Routing: direct, topic, fanout, headers</li>
+        <li>Guaranteed delivery + ACKs</li>
+        <li>Dead-letter queues</li>
+        <li>Transactional publishing</li>
+        <li>Complex enterprise workflows</li>
+      </ul>
+    </div>
+
+    <!-- MQTT -->
+    <div class="card mqtt" onclick="openModal('mqtt')">
+      <h2>📡 MQTT</h2>
+      <p><em>The Lightweight IoT Protocol</em></p>
+      <div class="flow">
+        <span class="node producer">Device</span>
+        <span class="arrow">→</span>
+        <span class="node broker">Broker</span>
+        <span class="arrow">→</span>
+        <span class="node consumer">Subscribers</span><br>
+        <small style="color:#aaa">topic: sensors/room1/temp</small>
+      </div>
+      <ul>
+        <li>Ultra-lightweight (~2KB header)</li>
+        <li>QoS 0, 1, 2 delivery modes</li>
+        <li>Retained messages + LWT</li>
+        <li>Works on unreliable networks</li>
+        <li>Perfect for battery-powered devices</li>
+      </ul>
+    </div>
+
+    <!-- NATS -->
+    <div class="card nats" onclick="openModal('nats')">
+      <h2>⚡ NATS</h2>
+      <p><em>The Cloud-Native Speed Demon</em></p>
+      <div class="flow">
+        <span class="node producer">Publisher</span>
+        <span class="arrow">→</span>
+        <span class="node broker">NATS Server</span>
+        <span class="arrow">→</span>
+        <span class="node consumer">Subscribers</span><br>
+        <small style="color:#aaa">subject: orders.created</small>
+      </div>
+      <ul>
+        <li>Sub-millisecond latency</li>
+        <li>Millions of msgs/sec</li>
+        <li>Pub/Sub, Request/Reply, Queue groups</li>
+        <li>JetStream for persistence</li>
+        <li>Built-in clustering</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- Benchmarks -->
+  <div class="benchmarks">
+    <h2>📊 Performance Benchmarks (Approximate)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>🐰 RabbitMQ</th>
+          <th>📡 MQTT (Mosquitto)</th>
+          <th>⚡ NATS</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Throughput (msgs/sec)</td>
+          <td>~50K – 100K</td>
+          <td>~100K – 200K</td>
+          <td>~3M – 10M+</td>
+        </tr>
+        <tr>
+          <td>Latency (p99)</td>
+          <td>1 – 10 ms</td>
+          <td>5 – 50 ms</td>
+          <td>&lt; 1 ms</td>
+        </tr>
+        <tr>
+          <td>Message Size Overhead</td>
+          <td>Medium (AMQP)</td>
+          <td>Tiny (2 bytes min)</td>
+          <td>Small</td>
+        </tr>
+        <tr>
+          <td>Persistence</td>
+          <td>✅ Built-in</td>
+          <td>⚠️ Limited</td>
+          <td>✅ JetStream</td>
+        </tr>
+        <tr>
+          <td>Memory Footprint</td>
+          <td>High (~150MB+)</td>
+          <td>Very Low (~10MB)</td>
+          <td>Low (~20MB)</td>
+        </tr>
+        <tr>
+          <td>Delivery Guarantees</td>
+          <td>At-most / At-least / Exactly</td>
+          <td>QoS 0 / 1 / 2</td>
+          <td>At-least / Exactly (JS)</td>
+        </tr>
+        <tr>
+          <td>Horizontal Scaling</td>
+          <td>Clustering</td>
+          <td>Bridge / Cluster</td>
+          <td>Native clustering</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="text-align:center;margin-top:15px;font-size:0.8rem;color:#aaa;">
+      * Numbers vary by hardware, payload size, and configuration. Always benchmark your own workload.
+    </p>
+  </div>
+
+  <!-- Decision Framework -->
+  <div class="decision">
+    <h2>🧭 When to Use What? — Detailed Decision Guide</h2>
+    <div class="decision-grid">
+
+      <div class="decision-item">
+        <strong>🐰 Pick RabbitMQ if you need...</strong>
+        <ul>
+          <li>Complex message routing (direct, topic, fanout, headers exchanges)</li>
+          <li>Strong delivery guarantees with manual ACKs & re-delivery</li>
+          <li>Dead-letter queues for failed message handling</li>
+          <li>Priority queues for urgent tasks</li>
+          <li>Transactional publishing (atomic multi-message ops)</li>
+          <li>Plugin ecosystem (Shovel, Federation, Management UI)</li>
+          <li>Battle-tested stability for enterprise workflows</li>
+          <li>Support for multiple protocols (AMQP, STOMP, MQTT via plugin)</li>
+        </ul>
+        <div class="use-case">💼 Ideal for: Banking transactions, order processing, job queues, ETL pipelines, workflow orchestration, microservice integration</div>
+        <div class="avoid">Ultra-high throughput (&gt;500K msg/s) or IoT on low-power devices</div>
+      </div>
+
+      <div class="decision-item">
+        <strong>📡 Pick MQTT if you need...</strong>
+        <ul>
+          <li>Minimal bandwidth & battery usage (2-byte header)</li>
+          <li>Support for millions of concurrent device connections</li>
+          <li>Three QoS levels (0 fire-forget, 1 at-least-once, 2 exactly-once)</li>
+          <li>Last Will & Testament for device offline detection</li>
+          <li>Retained messages (new subscribers get last known state)</li>
+          <li>Hierarchical topic filtering with wildcards (+, #)</li>
+          <li>Works on flaky, high-latency, or unstable networks</li>
+          <li>Standardized protocol (OASIS/ISO) with huge broker ecosystem</li>
+        </ul>
+        <div class="use-case">🌐 Ideal for: IoT sensor networks, smart home devices, connected cars, industrial telemetry, mobile push notifications, asset tracking</div>
+        <div class="avoid">Complex routing logic or high-throughput backend messaging</div>
+      </div>
+
+      <div class="decision-item">
+        <strong>⚡ Pick NATS if you need...</strong>
+        <ul>
+          <li>Sub-millisecond latency (&lt;1ms p99)</li>
+          <li>Extreme throughput (millions of messages/second)</li>
+          <li>Simple pub/sub with subject-based addressing</li>
+          <li>Request/Reply pattern built into the protocol</li>
+          <li>Queue groups for automatic load balancing</li>
+          <li>Native clustering & supercluster for global scale</li>
+          <li>Tiny binary (~20MB) — easy to deploy anywhere</li>
+          <li>Cloud-native design (CNCF graduated project)</li>
+          <li>Zero external dependencies & minimal configuration</li>
+        </ul>
+        <div class="use-case">🚀 Ideal for: Microservice mesh, real-time analytics, gaming backends, edge computing, service discovery, telemetry streaming</div>
+        <div class="avoid">Complex routing rules or when you need AMQP compatibility</div>
+      </div>
+
+      <div class="decision-item">
+        <strong>💾 Pick NATS JetStream if you need...</strong>
+        <ul>
+          <li>NATS-level speed PLUS message persistence</li>
+          <li>Exactly-once delivery semantics</li>
+          <li>Stream replay & time-travel consumption</li>
+          <li>Durable consumers that survive restarts</li>
+          <li>Kafka-like streaming with simpler operations</li>
+          <li>Built-in deduplication & flow control</li>
+          <li>Key-Value store & Object store capabilities</li>
+          <li>Multi-tenancy with accounts & permissions</li>
+        </ul>
+        <div class="use-case">📊 Ideal for: Event sourcing, audit logs, cloud-native event streaming, replayable pipelines, CQRS architectures</div>
+        <div class="avoid">Small-scale apps where RabbitMQ's simplicity is enough</div>
+      </div>
+
+      <div class="decision-item">
+        <strong>⚠️ Common Pitfalls to Avoid</strong>
+        <ul>
+          <li>Don't use MQTT for backend-to-backend — it's built for devices</li>
+          <li>Don't use RabbitMQ as a log store — use Kafka or JetStream</li>
+          <li>Don't use plain NATS when you need durability — use JetStream</li>
+          <li>Don't mix protocols without a clear gateway strategy</li>
+          <li>Don't over-engineer — sometimes a simple Redis pub/sub works</li>
+          <li>Don't ignore back-pressure & consumer lag monitoring</li>
+          <li>Don't forget to secure brokers (TLS, auth, ACLs)</li>
+        </ul>
+      </div>
+
+      <div class="decision-item">
+        <strong>🎯 Quick Decision Matrix</strong>
+        <ul>
+          <li><b>IoT devices?</b> → MQTT</li>
+          <li><b>Enterprise workflows?</b> → RabbitMQ</li>
+          <li><b>Microservices at scale?</b> → NATS</li>
+          <li><b>Event streaming?</b> → NATS JetStream / Kafka</li>
+          <li><b>Need exactly-once?</b> → RabbitMQ or JetStream</li>
+          <li><b>Low-power sensors?</b> → MQTT (QoS 0)</li>
+          <li><b>Request/Reply RPC?</b> → NATS</li>
+          <li><b>Complex routing rules?</b> → RabbitMQ topic exchange</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <footer>
+    Made with ❤️ for developers | Share, star, and discuss on LinkedIn
+  </footer>
+
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <button class="close-btn" onclick="closeModal()">✕</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script>
+const implementations = {
+  rabbitmq: {
+    title: "🐰 RabbitMQ — Full Go Implementation",
+    desc: "RabbitMQ uses AMQP protocol. Producers send messages to exchanges, which route them to queues based on binding rules. Consumers receive messages with acknowledgment support for guaranteed delivery.",
+    install: "go get github.com/rabbitmq/amqp091-go",
+    sections: [
+      {
+        title: "📤 Producer (Publisher)",
+        code: `package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    amqp "github.com/rabbitmq/amqp091-go"
+)
+
+func main() {
+    // 1. Connect to RabbitMQ server
+    conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+    if err != nil {
+        log.Fatalf("Failed to connect: %v", err)
+    }
+    defer conn.Close()
+
+    // 2. Create a channel
+    ch, err := conn.Channel()
+    if err != nil {
+        log.Fatalf("Failed to open channel: %v", err)
+    }
+    defer ch.Close()
+
+    // 3. Declare a durable queue
+    q, err := ch.QueueDeclare(
+        "orders_queue", // name
+        true,           // durable (survives broker restart)
+        false,          // delete when unused
+        false,          // exclusive
+        false,          // no-wait
+        nil,            // arguments
+    )
+    if err != nil {
+        log.Fatalf("Failed to declare queue: %v", err)
+    }
+
+    // 4. Publish a persistent message
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    body := "Order #12345 - Laptop"
+    err = ch.PublishWithContext(ctx,
+        "",     // exchange (default)
+        q.Name, // routing key
+        false,  // mandatory
+        false,  // immediate
+        amqp.Publishing{
+            DeliveryMode: amqp.Persistent,
+            ContentType:  "text/plain",
+            Body:         []byte(body),
+            Timestamp:    time.Now(),
+        })
+    if err != nil {
+        log.Fatalf("Failed to publish: %v", err)
+    }
+    log.Printf(" [x] Sent: %s", body)
+}`
+      },
+      {
+        title: "📥 Consumer (Subscriber)",
+        code: `package main
+
+import (
+    "log"
+
+    amqp "github.com/rabbitmq/amqp091-go"
+)
+
+func main() {
+    conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+    if err != nil {
+        log.Fatalf("Failed to connect: %v", err)
+    }
+    defer conn.Close()
+
+    ch, err := conn.Channel()
+    if err != nil {
+        log.Fatalf("Failed to open channel: %v", err)
+    }
+    defer ch.Close()
+
+    q, err := ch.QueueDeclare("orders_queue", true, false, false, false, nil)
+    if err != nil {
+        log.Fatalf("Failed to declare queue: %v", err)
+    }
+
+    // Fair dispatch: only one unacked message per worker
+    ch.Qos(1, 0, false)
+
+    msgs, err := ch.Consume(
+        q.Name, // queue
+        "",     // consumer tag
+        false,  // auto-ack (false = manual ack)
+        false,  // exclusive
+        false,  // no-local
+        false,  // no-wait
+        nil,    // args
+    )
+    if err != nil {
+        log.Fatalf("Failed to consume: %v", err)
+    }
+
+    forever := make(chan bool)
+    go func() {
+        for d := range msgs {
+            log.Printf(" [x] Received: %s", d.Body)
+            // Process the message...
+            d.Ack(false) // Manually acknowledge
+        }
+    }()
+
+    log.Printf(" [*] Waiting for messages. CTRL+C to exit")
+    <-forever
+}`
+      },
+      {
+        title: "🔀 Topic Exchange (Routing)",
+        code: `// Publisher with topic routing
+err = ch.ExchangeDeclare(
+    "logs_topic", // name
+    "topic",      // type
+    true,         // durable
+    false, false, false, nil,
+)
+
+// Route keys: "order.created", "order.cancelled", "user.signup"
+ch.PublishWithContext(ctx,
+    "logs_topic",    // exchange
+    "order.created", // routing key
+    false, false,
+    amqp.Publishing{
+        ContentType: "text/plain",
+        Body:        []byte("New order placed"),
+    })
+
+// Consumer binds with wildcards
+// "order.*" → matches order.created, order.cancelled
+// "#"       → matches everything
+ch.QueueBind(q.Name, "order.*", "logs_topic", false, nil)`
+      }
+    ]
+  },
+  mqtt: {
+    title: "📡 MQTT — Full Go Implementation",
+    desc: "MQTT is a lightweight publish/subscribe protocol designed for IoT and constrained devices. It uses hierarchical topics and supports 3 QoS levels for delivery guarantees.",
+    install: "go get github.com/eclipse/paho.mqtt.golang",
+    sections: [
+      {
+        title: "📤 Publisher (IoT Device)",
+        code: `package main
+
+import (
+    "fmt"
+    "log"
+    "time"
+
+    mqtt "github.com/eclipse/paho.mqtt.golang"
+)
+
+func main() {
+    // 1. Configure connection options
+    opts := mqtt.NewClientOptions().
+        AddBroker("tcp://localhost:1883").
+        SetClientID("sensor-device-01").
+        SetUsername("device_user").
+        SetPassword("secret").
+        SetKeepAlive(60 * time.Second).
+        SetPingTimeout(10 * time.Second).
+        SetAutoReconnect(true)
+
+    // 2. Set Last Will Message (sent if device disconnects unexpectedly)
+    opts.SetWill("sensors/device01/status", "offline", 1, true)
+
+    // 3. Connect to broker
+    client := mqtt.NewClient(opts)
+    if token := client.Connect(); token.Wait() && token.Error() != nil {
+        log.Fatalf("Connection failed: %v", token.Error())
+    }
+    defer client.Disconnect(250)
+
+    // 4. Publish sensor readings every 5 seconds
+    for i := 0; i < 10; i++ {
+        payload := fmt.Sprintf(\`{"temp": %.2f, "humidity": %.2f}\`,
+            20.0+float64(i), 55.0+float64(i))
+
+        // QoS 1 = At least once delivery
+        // retained = true means last value is stored for new subscribers
+        token := client.Publish("sensors/room1/data", 1, true, payload)
+        token.Wait()
+
+        log.Printf("Published: %s", payload)
+        time.Sleep(5 * time.Second)
+    }
+}`
+      },
+      {
+        title: "📥 Subscriber (Backend Service)",
+        code: `package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+
+    mqtt "github.com/eclipse/paho.mqtt.golang"
+)
+
+// Message handler
+var messageHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
+    fmt.Printf("📨 Topic: %s\\n", msg.Topic())
+    fmt.Printf("   Payload: %s\\n", msg.Payload())
+    fmt.Printf("   QoS: %d | Retained: %v\\n\\n", msg.Qos(), msg.Retained())
+}
+
+// Connection lost handler
+var connectLostHandler mqtt.ConnectionLostHandler = func(c mqtt.Client, err error) {
+    log.Printf("⚠️ Connection lost: %v", err)
+}
+
+func main() {
+    opts := mqtt.NewClientOptions().
+        AddBroker("tcp://localhost:1883").
+        SetClientID("backend-service").
+        SetDefaultPublishHandler(messageHandler).
+        SetConnectionLostHandler(connectLostHandler)
+
+    client := mqtt.NewClient(opts)
+    if token := client.Connect(); token.Wait() && token.Error() != nil {
+        log.Fatal(token.Error())
+    }
+
+    // Subscribe with wildcards
+    //   +  = single level wildcard   (sensors/+/data)
+    //   #  = multi-level wildcard    (sensors/#)
+    topic := "sensors/+/data"
+    if token := client.Subscribe(topic, 1, nil); token.Wait() && token.Error() != nil {
+        log.Fatal(token.Error())
+    }
+    log.Printf("✅ Subscribed to %s", topic)
+
+    // Wait for interrupt signal
+    sigs := make(chan os.Signal, 1)
+    signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+    <-sigs
+
+    client.Unsubscribe(topic)
+    client.Disconnect(250)
+}`
+      },
+      {
+        title: "🎯 QoS Levels Explained",
+        code: `// QoS 0 — Fire and forget (no guarantee, fastest)
+client.Publish("sensors/temp", 0, false, "25.3")
+
+// QoS 1 — At least once (message may be delivered multiple times)
+client.Publish("orders/new", 1, false, "Order-123")
+
+// QoS 2 — Exactly once (slowest but most reliable)
+client.Publish("payments/charge", 2, false, "500 USD")
+
+// Retained message — broker stores last value for new subscribers
+client.Publish("config/version", 1, true, "v1.0.2")`
+      }
+    ]
+  },
+  nats: {
+    title: "⚡ NATS — Full Go Implementation",
+    desc: "NATS is a high-performance cloud-native messaging system. It supports pub/sub, request/reply, and queue groups. JetStream adds persistence and exactly-once delivery.",
+    install: "go get github.com/nats-io/nats.go",
+    sections: [
+      {
+        title: "📤 Publisher",
+        code: `package main
+
+import (
+    "log"
+    "time"
+
+    "github.com/nats-io/nats.go"
+)
+
+func main() {
+    // 1. Connect to NATS server with options
+    nc, err := nats.Connect(nats.DefaultURL,
+        nats.Name("publisher-service"),
+        nats.Timeout(5*time.Second),
+        nats.ReconnectWait(2*time.Second),
+        nats.MaxReconnects(10),
+    )
+    if err != nil {
+        log.Fatalf("Failed to connect: %v", err)
+    }
+    defer nc.Close()
+
+    // 2. Simple publish (fire and forget)
+    for i := 0; i < 5; i++ {
+        msg := []byte("Order #" + string(rune(i+'0')))
+        if err := nc.Publish("orders.created", msg); err != nil {
+            log.Printf("Publish error: %v", err)
+            continue
+        }
+        log.Printf("✅ Published: %s", msg)
+        time.Sleep(1 * time.Second)
+    }
+
+    // 3. Ensure all messages reach server
+    nc.Flush()
+    if err := nc.LastError(); err != nil {
+        log.Fatal(err)
+    }
+}`
+      },
+      {
+        title: "📥 Subscriber",
+        code: `package main
+
+import (
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+
+    "github.com/nats-io/nats.go"
+)
+
+func main() {
+    nc, err := nats.Connect(nats.DefaultURL)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer nc.Close()
+
+    // Async subscription with subject wildcards
+    //   *  = single token   (orders.*)
+    //   >  = multiple tokens (orders.>)
+    sub, err := nc.Subscribe("orders.*", func(msg *nats.Msg) {
+        log.Printf("📨 [%s] %s", msg.Subject, string(msg.Data))
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer sub.Unsubscribe()
+
+    log.Println("✅ Listening on orders.*")
+
+    // Wait for interrupt
+    sigs := make(chan os.Signal, 1)
+    signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+    <-sigs
+}`
+      },
+      {
+        title: "🔄 Request/Reply Pattern",
+        code: `// Responder (Service)
+nc.Subscribe("service.ping", func(msg *nats.Msg) {
+    log.Printf("Got request: %s", string(msg.Data))
+    msg.Respond([]byte("pong"))
+})
+
+// Requester (Client)
+resp, err := nc.Request("service.ping", []byte("ping"), 2*time.Second)
+if err != nil {
+    log.Printf("Request failed: %v", err)
+    return
+}
+log.Printf("Got reply: %s", string(resp.Data))`
+      },
+      {
+        title: "👥 Queue Groups (Load Balancing)",
+        code: `// Multiple workers share the load — only ONE receives each message
+nc.QueueSubscribe("jobs", "workers", func(msg *nats.Msg) {
+    log.Printf("Worker processing: %s", string(msg.Data))
+    // Do work...
+})
+
+// Publish jobs — distributed across all workers in the "workers" group
+for i := 0; i < 100; i++ {
+    nc.Publish("jobs", []byte(fmt.Sprintf("Job-%d", i)))
+}`
+      },
+      {
+        title: "💾 JetStream (Persistence + Exactly-Once)",
+        code: `// Create JetStream context
+js, err := nc.JetStream()
+if err != nil {
+    log.Fatal(err)
+}
+
+// Create a persistent stream
+js.AddStream(&nats.StreamConfig{
+    Name:     "ORDERS",
+    Subjects: []string{"orders.>"},
+    Storage:  nats.FileStorage,
+    MaxAge:   24 * time.Hour,
+})
+
+// Publish with acknowledgment
+ack, err := js.Publish("orders.new", []byte("Order #789"))
+if err != nil {
+    log.Fatal(err)
+}
+log.Printf("✅ Stored in stream '%s' at seq %d", ack.Stream, ack.Sequence)
+
+// Durable consumer (survives restarts)
+js.Subscribe("orders.>", func(msg *nats.Msg) {
+    log.Printf("Processing: %s", string(msg.Data))
+    msg.Ack()
+}, nats.Durable("order-processor"), nats.ManualAck())`
+      }
+    ]
+  }
+};
+
+function openModal(type) {
+  const data = implementations[type];
+  const content = document.getElementById('modal-content');
+
+  let html = '<h2>' + data.title + '</h2>' +
+             '<p class="desc">' + data.desc + '</p>' +
+             '<div class="install-cmd">$ ' + data.install + '</div>';
+
+  data.sections.forEach(function(section) {
+    const escaped = section.code
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    html += '<div class="code-section">' +
+              '<h3>' + section.title + '</h3>' +
+              '<pre><button class="copy-btn" onclick="copyCode(this)">📋 Copy</button><code>' + escaped + '</code></pre>' +
+            '</div>';
+  });
+
+  content.innerHTML = html;
+  document.getElementById('modal').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('active');
+  document.body.style.overflow = 'auto';
+}
+
+function copyCode(btn) {
+  const code = btn.parentElement.querySelector('code').innerText;
+  navigator.clipboard.writeText(code).then(() => {
+    const original = btn.innerText;
+    btn.innerText = '✅ Copied!';
+    setTimeout(() => btn.innerText = original, 1500);
+  });
+}
+
+// Close modal with Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,2291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go Goroutines Deep Dive — with Code Examples</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e17;
+            --bg-secondary: #0f1520;
+            --card-bg: #141c2b;
+            --card-bg-hover: #182035;
+            --border: #1e2a3f;
+            --border-light: #2a3a55;
+            --text: #e4ecf7;
+            --text-muted: #7a8ba6;
+            --accent: #4f9cf7;
+            --accent-glow: rgba(79, 156, 247, 0.15);
+            --accent-green: #34d399;
+            --accent-red: #f472b6;
+            --accent-yellow: #fbbf24;
+            --accent-purple: #a78bfa;
+            --accent-cyan: #22d3ee;
+            --code-bg: #0c1119;
+            --keyword: #f472b6;
+            --string: #7dd3fc;
+            --comment: #5c6e8a;
+            --func: #c4b5fd;
+            --type: #67e8f9;
+            --number: #34d399;
+            --glow-blue: 0 0 40px rgba(79, 156, 247, 0.1);
+            --glow-purple: 0 0 40px rgba(167, 139, 250, 0.08);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* === HEADER === */
+        .header {
+            background: linear-gradient(160deg, #0f1832 0%, #0a0e17 40%, #120c22 100%);
+            border-bottom: 1px solid var(--border);
+            padding: 4.5rem 2rem 3.5rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 30% 50%, rgba(79, 156, 247, 0.04) 0%, transparent 50%),
+                        radial-gradient(circle at 70% 50%, rgba(167, 139, 250, 0.04) 0%, transparent 50%);
+            animation: headerGlow 12s ease-in-out infinite alternate;
+        }
+
+        @keyframes headerGlow {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(-2%, 2%); }
+        }
+
+        .header h1 {
+            font-size: 2.8rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, #4f9cf7 0%, #a78bfa 50%, #22d3ee 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.8rem;
+            position: relative;
+        }
+
+        .header .author-tag {
+            color: var(--accent);
+            font-size: 0.9rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.6rem;
+            position: relative;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            max-width: 600px;
+            margin: 0 auto;
+            position: relative;
+            font-weight: 400;
+        }
+
+        .header .stats {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 2rem;
+            flex-wrap: wrap;
+            position: relative;
+        }
+
+        .header .stat {
+            background: rgba(79, 156, 247, 0.06);
+            border: 1px solid rgba(79, 156, 247, 0.15);
+            border-radius: 100px;
+            padding: 0.5rem 1.4rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+        }
+
+        .stat:hover {
+            background: rgba(79, 156, 247, 0.12);
+            border-color: rgba(79, 156, 247, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .stat strong { color: var(--accent); }
+
+        /* === NAV === */
+        .nav {
+            background: rgba(15, 21, 32, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 0.8rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.4rem;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
+        .nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 0.5rem 1.1rem;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            font-weight: 500;
+            transition: all 0.25s ease;
+            display: inline-block;
+            border: 1px solid transparent;
+            letter-spacing: 0.01em;
+        }
+
+        .nav a:hover {
+            color: var(--accent);
+            background: rgba(79, 156, 247, 0.08);
+            border-color: rgba(79, 156, 247, 0.15);
+        }
+
+        .nav a.active {
+            color: #fff;
+            background: linear-gradient(135deg, rgba(79, 156, 247, 0.2), rgba(167, 139, 250, 0.15));
+            border-color: rgba(79, 156, 247, 0.3);
+            box-shadow: 0 0 20px rgba(79, 156, 247, 0.1);
+        }
+
+        /* === CONTAINER === */
+        .container {
+            max-width: 880px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem 4rem;
+        }
+
+        /* === SECTION GROUP === */
+        .section-group {
+            margin: 2.5rem 0;
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            overflow: hidden;
+            background: rgba(14, 20, 32, 0.5);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }
+
+        /* === SECTION HEADER === */
+        .section-header {
+            margin: 0;
+            padding: 1.5rem 2rem;
+            background: linear-gradient(135deg, rgba(79, 156, 247, 0.08) 0%, rgba(167, 139, 250, 0.05) 100%);
+            border-bottom: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            position: relative;
+            overflow: hidden;
+            border-radius: 0;
+        }
+
+        .section-group > .section-header {
+            border-radius: 17px 17px 0 0;
+        }
+
+        .section-header::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 200px;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(79, 156, 247, 0.03));
+            pointer-events: none;
+        }
+
+        .section-header h2 {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 0.15rem;
+            letter-spacing: -0.02em;
+        }
+
+        .section-header .difficulty {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .section-questions {
+            padding: 0.6rem;
+        }
+
+        /* === QUESTION CARD === */
+        .question {
+            background: var(--card-bg);
+            border: 1px solid transparent;
+            border-radius: 12px;
+            margin: 0.4rem 0;
+            overflow: hidden;
+            transition: all 0.25s ease;
+        }
+
+        .question:hover {
+            border-color: var(--border-light);
+            background: var(--card-bg-hover);
+        }
+
+        .question.open {
+            border-color: rgba(79, 156, 247, 0.25);
+            background: var(--card-bg-hover);
+            box-shadow: 0 2px 12px rgba(79, 156, 247, 0.06);
+        }
+
+        .question-header {
+            padding: 1.1rem 1.5rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+            gap: 0.8rem;
+        }
+
+        .question-header h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text);
+            flex: 1;
+            letter-spacing: -0.01em;
+        }
+
+        .question-header .q-num {
+            background: linear-gradient(135deg, var(--accent), #6db8ff);
+            color: #fff;
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.25rem 0.65rem;
+            border-radius: 6px;
+            flex-shrink: 0;
+            letter-spacing: 0.03em;
+            box-shadow: 0 2px 8px rgba(79, 156, 247, 0.25);
+        }
+
+        .question-header .q-num.bug {
+            background: linear-gradient(135deg, #ec4899, #f472b6);
+            box-shadow: 0 2px 8px rgba(244, 114, 182, 0.25);
+        }
+        .question-header .q-num.pattern {
+            background: linear-gradient(135deg, #10b981, #34d399);
+            box-shadow: 0 2px 8px rgba(52, 211, 153, 0.25);
+        }
+        .question-header .q-num.advanced {
+            background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+            box-shadow: 0 2px 8px rgba(167, 139, 250, 0.25);
+        }
+        .question-header .q-num.scheduler {
+            background: linear-gradient(135deg, #f59e0b, #fbbf24);
+            color: #1a1a2e;
+            box-shadow: 0 2px 8px rgba(251, 191, 36, 0.25);
+        }
+
+        .question-header .toggle {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            transition: all 0.35s ease;
+            flex-shrink: 0;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.03);
+        }
+
+        .question:hover .toggle { background: rgba(255,255,255,0.06); }
+        .question.open .toggle {
+            transform: rotate(180deg);
+            color: var(--accent);
+            background: var(--accent-glow);
+        }
+
+        /* === ANSWER === */
+        .answer {
+            display: none;
+            padding: 0 1.5rem 1.5rem;
+            border-top: 1px solid var(--border);
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .question.open .answer { display: block; }
+
+        .answer p {
+            margin: 1rem 0 0.5rem;
+            color: var(--text);
+            font-size: 0.92rem;
+        }
+
+        .answer strong { color: var(--accent); }
+
+        .answer ul, .answer ol {
+            margin: 0.5rem 0 0.5rem 1.5rem;
+            color: var(--text);
+            font-size: 0.92rem;
+        }
+
+        .answer li {
+            margin-bottom: 0.4rem;
+            color: var(--text);
+        }
+
+        .answer li::marker { color: var(--text-muted); }
+
+        /* === CODE BLOCKS === */
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.2rem 1.4rem;
+            overflow-x: auto;
+            margin: 1rem 0;
+            font-size: 0.83rem;
+            line-height: 1.65;
+            position: relative;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        pre .lang-tag {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.7rem;
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            background: rgba(255,255,255,0.05);
+            padding: 0.15rem 0.55rem;
+            border-radius: 5px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            font-family: 'Inter', sans-serif;
+        }
+
+        code {
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas, monospace;
+        }
+
+        .inline-code {
+            background: rgba(79, 156, 247, 0.1);
+            color: var(--accent);
+            padding: 0.15rem 0.5rem;
+            border-radius: 5px;
+            font-size: 0.83em;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 500;
+        }
+
+        .kw { color: var(--keyword); }
+        .str { color: var(--string); }
+        .cm { color: var(--comment); font-style: italic; }
+        .fn { color: var(--func); }
+        .tp { color: var(--type); }
+        .nu { color: var(--number); }
+
+        /* === TABLES === */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1rem 0;
+            font-size: 0.85rem;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        th {
+            background: rgba(79, 156, 247, 0.08);
+            color: var(--accent);
+            text-align: left;
+            padding: 0.7rem 1rem;
+            font-weight: 600;
+            font-size: 0.8rem;
+            letter-spacing: 0.02em;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        tr:last-child td { border-bottom: none; }
+        tr:nth-child(even) td { background: rgba(255,255,255,0.015); }
+
+        /* === CALLOUTS === */
+        .output {
+            background: rgba(52, 211, 153, 0.06);
+            border: 1px solid rgba(52, 211, 153, 0.15);
+            border-left: 3px solid var(--accent-green);
+            padding: 0.9rem 1.2rem;
+            margin: 1rem 0;
+            border-radius: 0 10px 10px 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.83rem;
+            color: var(--accent-green);
+        }
+
+        .warning {
+            background: rgba(244, 114, 182, 0.06);
+            border: 1px solid rgba(244, 114, 182, 0.15);
+            border-left: 3px solid var(--accent-red);
+            padding: 0.9rem 1.2rem;
+            margin: 1rem 0;
+            border-radius: 0 10px 10px 0;
+            font-size: 0.88rem;
+            color: #fca5c5;
+        }
+
+        .tip {
+            background: rgba(251, 191, 36, 0.05);
+            border: 1px solid rgba(251, 191, 36, 0.12);
+            border-left: 3px solid var(--accent-yellow);
+            padding: 0.9rem 1.2rem;
+            margin: 1rem 0;
+            border-radius: 0 10px 10px 0;
+            font-size: 0.88rem;
+            color: #fde68a;
+        }
+
+        /* === EXPAND BUTTON === */
+        .expand-all {
+            background: linear-gradient(135deg, rgba(79, 156, 247, 0.1), rgba(167, 139, 250, 0.08));
+            border: 1px solid rgba(79, 156, 247, 0.2);
+            color: var(--accent);
+            padding: 0.6rem 1.6rem;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            margin: 1rem 0;
+            transition: all 0.3s ease;
+            letter-spacing: 0.01em;
+        }
+
+        .expand-all:hover {
+            background: linear-gradient(135deg, var(--accent), #6db8ff);
+            color: #fff;
+            border-color: var(--accent);
+            box-shadow: 0 4px 20px rgba(79, 156, 247, 0.25);
+            transform: translateY(-1px);
+        }
+
+        /* === FOOTER === */
+        .footer {
+            text-align: center;
+            padding: 4rem 2rem 3rem;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            background: linear-gradient(180deg, var(--bg), var(--bg-secondary));
+        }
+
+        .footer p { margin-bottom: 0.6rem; }
+        .footer strong { color: var(--text); font-weight: 600; }
+
+        .footer a {
+            color: var(--accent);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .footer a:hover { color: #7db9ff; text-decoration: underline; }
+
+        /* === SCROLLBAR === */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-light);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        /* === RESPONSIVE === */
+        @media (max-width: 768px) {
+            .header { padding: 3rem 1.5rem 2.5rem; }
+            .header h1 { font-size: 1.8rem; }
+            .header .stats { gap: 0.6rem; }
+            .stat { font-size: 0.78rem; padding: 0.4rem 1rem; }
+            .container { padding: 1rem; }
+            pre { font-size: 0.76rem; padding: 1rem; }
+            .nav { gap: 0.2rem; padding: 0.6rem 1rem; }
+            .nav a { font-size: 0.75rem; padding: 0.4rem 0.7rem; }
+            .question-header { padding: 1rem 1.2rem; }
+            .question-header h3 { font-size: 0.88rem; }
+            .answer { padding: 0 1.2rem 1.2rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Go Goroutines Deep Dive</h1>
+    <p>Runnable Code Examples &mdash; From Fundamentals to Expert</p>
+    <div class="stats">
+        <span class="stat"><strong>78</strong> Questions</span>
+        <span class="stat"><strong>9</strong> Sections</span>
+        <span class="stat"><strong>0-100%</strong> Difficulty</span>
+        <span class="stat"><strong>Go</strong> 1.23+</span>
+    </div>
+</div>
+
+<nav class="nav" id="nav">
+    <a href="#s1">Fundamentals</a>
+    <a href="#s2">Channels</a>
+    <a href="#s3">Synchronization</a>
+    <a href="#s4">Patterns</a>
+    <a href="#s5">Advanced</a>
+    <a href="#s6">Scheduler</a>
+    <a href="#s7">Real-World</a>
+    <a href="#s8">Spot The Bug</a>
+    <a href="#s9">Must-Know</a>
+</nav>
+
+<div class="container">
+
+<button class="expand-all" onclick="toggleAll()">Expand / Collapse All</button>
+
+<!-- ==================== SECTION 1 ==================== -->
+<div class="section-group">
+<div class="section-header" id="s1">
+    <h2>Section 1: Fundamentals</h2>
+    <span class="difficulty">Difficulty: 0-20% | Q1 - Q5</span>
+</div>
+<div class="section-questions">
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q1</span>
+        <h3>What is a goroutine?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+        <p>A goroutine is a <strong>lightweight, user-space thread</strong> managed by the Go runtime. It runs concurrently with other goroutines in the same address space.</p>
+<pre><code><span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">go</span> <span class="fn">sayHello</span>() <span class="cm">// spawns a goroutine &mdash; runs concurrently</span>
+    fmt.<span class="fn">Println</span>(<span class="str">"main function"</span>)
+    time.<span class="fn">Sleep</span>(time.Second)
+}
+
+<span class="kw">func</span> <span class="fn">sayHello</span>() {
+    fmt.<span class="fn">Println</span>(<span class="str">"hello from goroutine"</span>)
+}
+</code><span class="lang-tag">Go</span></pre>
+        <div class="output">main function<br>hello from goroutine</div>
+        <p><strong>Key facts:</strong></p>
+        <ul>
+            <li>Starts with ~2KB stack (grows dynamically up to 1GB)</li>
+            <li>Costs ~few microseconds to create (vs milliseconds for OS threads)</li>
+            <li>You can run millions of goroutines on a single machine</li>
+            <li>Managed by Go's runtime scheduler, not the OS</li>
+        </ul>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q2</span>
+        <h3>What is the difference between a goroutine and an OS thread?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+        <table>
+            <tr><th>Feature</th><th>Goroutine</th><th>OS Thread</th></tr>
+            <tr><td>Stack size</td><td>~2KB (dynamic)</td><td>1-8MB (fixed)</td></tr>
+            <tr><td>Creation time</td><td>~1-2 &micro;s</td><td>~100+ &micro;s</td></tr>
+            <tr><td>Scheduling</td><td>Go runtime (user-space)</td><td>OS kernel</td></tr>
+            <tr><td>Context switch</td><td>~tens of ns</td><td>~microseconds</td></tr>
+            <tr><td>Count</td><td>Millions feasible</td><td>Thousands max</td></tr>
+            <tr><td>Communication</td><td>Channels (first-class)</td><td>Shared memory + locks</td></tr>
+        </table>
+<pre><code><span class="cm">// You can spawn 1 million goroutines!</span>
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">var</span> wg sync.WaitGroup
+    <span class="kw">for</span> i := <span class="nu">0</span>; i &lt; <span class="nu">1_000_000</span>; i++ {
+        wg.<span class="fn">Add</span>(<span class="nu">1</span>)
+        <span class="kw">go</span> <span class="kw">func</span>(id <span class="tp">int</span>) {
+            <span class="kw">defer</span> wg.<span class="fn">Done</span>()
+            time.<span class="fn">Sleep</span>(time.Second)
+        }(i)
+    }
+    fmt.<span class="fn">Println</span>(<span class="str">"Spawned 1,000,000 goroutines"</span>)
+    wg.<span class="fn">Wait</span>()
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q3</span>
+        <h3>What happens when the main goroutine exits?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+        <p>When <code class="inline-code">main()</code> returns, the entire program exits immediately &mdash; <strong>all other goroutines are killed</strong>, even if they haven't finished.</p>
+<pre><code><span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        time.<span class="fn">Sleep</span>(<span class="nu">2</span> * time.Second)
+        fmt.<span class="fn">Println</span>(<span class="str">"This will NEVER print"</span>)
+    }()
+
+    fmt.<span class="fn">Println</span>(<span class="str">"main exits immediately"</span>)
+}
+</code><span class="lang-tag">Go</span></pre>
+        <div class="output">main exits immediately</div>
+        <div class="tip"><strong>Fix:</strong> Use <code class="inline-code">sync.WaitGroup</code>, channels, or <code class="inline-code">select</code> to wait for goroutines.</div>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q4</span>
+        <h3>How do you launch a goroutine with arguments?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// CORRECT: Pass as function argument</span>
+<span class="kw">for</span> i := <span class="nu">0</span>; i &lt; <span class="nu">5</span>; i++ {
+    <span class="kw">go</span> <span class="kw">func</span>(n <span class="tp">int</span>) {
+        fmt.<span class="fn">Println</span>(n) <span class="cm">// prints 0,1,2,3,4 (some order)</span>
+    }(i) <span class="cm">// i is COPIED into n</span>
+}
+
+<span class="cm">// BUG (before Go 1.22): Closure captures shared variable</span>
+<span class="kw">for</span> i := <span class="nu">0</span>; i &lt; <span class="nu">5</span>; i++ {
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        fmt.<span class="fn">Println</span>(i) <span class="cm">// likely prints "5" five times</span>
+    }()
+}
+</code><span class="lang-tag">Go</span></pre>
+        <div class="warning"><strong>Rule:</strong> Always pass loop variables as function arguments to goroutines (unless Go 1.22+ where loop vars are per-iteration).</div>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q5</span>
+        <h3>What is the <code>go</code> keyword? Can you use it with any function?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">go</span> <span class="fn">myFunction</span>()            <span class="cm">// Named function</span>
+<span class="kw">go</span> myStruct.<span class="fn">Method</span>()        <span class="cm">// Method call</span>
+<span class="kw">go</span> <span class="kw">func</span>() { ... }()        <span class="cm">// Anonymous function</span>
+<span class="kw">go</span> fmt.<span class="fn">Println</span>(<span class="str">"hello"</span>)    <span class="cm">// stdlib function</span>
+
+<span class="cm">// You CANNOT get a return value directly:</span>
+<span class="cm">// result := go compute()  // COMPILE ERROR</span>
+
+<span class="cm">// Use channels for return values:</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+<span class="kw">go</span> <span class="kw">func</span>() { ch &lt;- <span class="fn">compute</span>() }()
+result := &lt;-ch
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+</div></div>
+<!-- ==================== SECTION 2 ==================== -->
+<div class="section-group">
+<div class="section-header" id="s2">
+    <h2>Section 2: Channels &amp; Communication</h2>
+    <span class="difficulty">Difficulty: 20-40% | Q6 - Q11</span>
+</div>
+<div class="section-questions">
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q6</span>
+        <h3>What are channels and how do goroutines communicate?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+        <p>Channels are typed conduits for sending and receiving values between goroutines. Go's philosophy: <strong>"Don't communicate by sharing memory; share memory by communicating."</strong></p>
+<pre><code><span class="kw">func</span> <span class="fn">main</span>() {
+    ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+
+    <span class="cm">// Producer goroutine</span>
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        ch &lt;- <span class="nu">42</span> <span class="cm">// send value into channel</span>
+    }()
+
+    <span class="cm">// Consumer (main goroutine)</span>
+    value := &lt;-ch <span class="cm">// receive value from channel</span>
+    fmt.<span class="fn">Println</span>(value) <span class="cm">// 42</span>
+}
+</code><span class="lang-tag">Go</span></pre>
+<pre><code>ch &lt;- value   <span class="cm">// Send &mdash; blocks until someone receives</span>
+value := &lt;-ch <span class="cm">// Receive &mdash; blocks until someone sends</span>
+<span class="fn">close</span>(ch)     <span class="cm">// Close &mdash; signals no more values</span>
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q7</span>
+        <h3>Buffered vs unbuffered channels</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// Unbuffered &mdash; synchronous (sender blocks until receiver ready)</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+
+<span class="cm">// Buffered &mdash; async up to capacity (blocks when full)</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>, <span class="nu">5</span>)
+</code><span class="lang-tag">Go</span></pre>
+<pre><code><span class="cm">// Unbuffered &mdash; this DEADLOCKS</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+ch &lt;- <span class="nu">1</span> <span class="cm">// blocks forever &mdash; deadlock!</span>
+
+<span class="cm">// Buffered &mdash; this works</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>, <span class="nu">1</span>)
+ch &lt;- <span class="nu">1</span> <span class="cm">// doesn't block (buffer has space)</span>
+fmt.<span class="fn">Println</span>(&lt;-ch) <span class="cm">// 1</span>
+</code><span class="lang-tag">Go</span></pre>
+        <table>
+            <tr><th>Scenario</th><th>Use Unbuffered</th><th>Use Buffered</th></tr>
+            <tr><td>Synchronization</td><td>&#10004; Guaranteed handoff</td><td></td></tr>
+            <tr><td>Different speeds</td><td></td><td>&#10004; Absorbs bursts</td></tr>
+            <tr><td>Backpressure</td><td>&#10004; Natural</td><td>Delayed</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q8</span>
+        <h3>Send to / receive from / close a closed channel?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code>ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>, <span class="nu">3</span>)
+ch &lt;- <span class="nu">1</span>
+ch &lt;- <span class="nu">2</span>
+<span class="fn">close</span>(ch)
+
+fmt.<span class="fn">Println</span>(&lt;-ch) <span class="cm">// 1</span>
+fmt.<span class="fn">Println</span>(&lt;-ch) <span class="cm">// 2</span>
+fmt.<span class="fn">Println</span>(&lt;-ch) <span class="cm">// 0 (zero value, closed &amp; empty)</span>
+
+val, ok := &lt;-ch
+fmt.<span class="fn">Println</span>(val, ok) <span class="cm">// 0, false</span>
+
+<span class="cm">// ch &lt;- 3    // PANIC: send on closed channel</span>
+<span class="cm">// close(ch)  // PANIC: close of closed channel</span>
+</code><span class="lang-tag">Go</span></pre>
+        <table>
+            <tr><th>Operation</th><th>Nil Channel</th><th>Open Channel</th><th>Closed Channel</th></tr>
+            <tr><td>Send</td><td>Blocks forever</td><td>Sends (may block)</td><td><strong>PANIC</strong></td></tr>
+            <tr><td>Receive</td><td>Blocks forever</td><td>Receives (may block)</td><td>Returns zero value</td></tr>
+            <tr><td>Close</td><td><strong>PANIC</strong></td><td>Closes</td><td><strong>PANIC</strong></td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q9</span>
+        <h3>How do you iterate over a channel?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">go</span> <span class="kw">func</span>() {
+    ch &lt;- <span class="str">"hello"</span>
+    ch &lt;- <span class="str">"world"</span>
+    <span class="fn">close</span>(ch) <span class="cm">// MUST close, otherwise range blocks forever</span>
+}()
+
+<span class="kw">for</span> msg := <span class="kw">range</span> ch {
+    fmt.<span class="fn">Println</span>(msg)
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q10</span>
+        <h3>What are directional channels?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">func</span> <span class="fn">producer</span>(out <span class="kw">chan</span>&lt;- <span class="tp">int</span>) { <span class="cm">// send-only</span>
+    out &lt;- <span class="nu">42</span>
+    <span class="fn">close</span>(out)
+}
+
+<span class="kw">func</span> <span class="fn">consumer</span>(in &lt;-<span class="kw">chan</span> <span class="tp">int</span>) { <span class="cm">// receive-only</span>
+    <span class="kw">for</span> val := <span class="kw">range</span> in {
+        fmt.<span class="fn">Println</span>(val)
+    }
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>, <span class="nu">5</span>)
+    <span class="kw">go</span> <span class="fn">producer</span>(ch)
+    <span class="fn">consumer</span>(ch)
+}
+</code><span class="lang-tag">Go</span></pre>
+        <div class="tip">Compiler catches misuse at compile time &mdash; prevents accidental sends on a receive channel.</div>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q11</span>
+        <h3>Explain the <code>select</code> statement</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+        <p><code class="inline-code">select</code> lets a goroutine wait on multiple channel operations simultaneously:</p>
+<pre><code><span class="kw">select</span> {
+<span class="kw">case</span> msg := &lt;-ch1:
+    fmt.<span class="fn">Println</span>(<span class="str">"from ch1:"</span>, msg)
+<span class="kw">case</span> msg := &lt;-ch2:
+    fmt.<span class="fn">Println</span>(<span class="str">"from ch2:"</span>, msg)
+<span class="kw">case</span> &lt;-time.<span class="fn">After</span>(<span class="nu">5</span> * time.Second):
+    fmt.<span class="fn">Println</span>(<span class="str">"timeout"</span>)
+<span class="kw">default</span>:
+    fmt.<span class="fn">Println</span>(<span class="str">"no channel ready"</span>) <span class="cm">// non-blocking</span>
+}
+</code><span class="lang-tag">Go</span></pre>
+        <ul>
+            <li>Multiple cases ready &rarr; <strong>one chosen randomly</strong> (fair)</li>
+            <li>No case ready, no default &rarr; <strong>blocks</strong></li>
+            <li>With <code class="inline-code">default</code> &rarr; <strong>non-blocking</strong></li>
+        </ul>
+    </div>
+</div>
+
+</div></div>
+<!-- ==================== SECTION 3 ==================== -->
+<div class="section-group">
+<div class="section-header" id="s3">
+    <h2>Section 3: Synchronization Patterns</h2>
+    <span class="difficulty">Difficulty: 40-55% | Q12 - Q18</span>
+</div>
+<div class="section-questions">
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q12</span>
+        <h3>How does sync.WaitGroup work?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">var</span> wg sync.WaitGroup
+
+<span class="kw">for</span> _, url := <span class="kw">range</span> urls {
+    wg.<span class="fn">Add</span>(<span class="nu">1</span>) <span class="cm">// increment BEFORE spawning goroutine</span>
+    <span class="kw">go</span> <span class="kw">func</span>(u <span class="tp">string</span>) {
+        <span class="kw">defer</span> wg.<span class="fn">Done</span>() <span class="cm">// decrement when done</span>
+        <span class="fn">fetch</span>(u)
+    }(url)
+}
+
+wg.<span class="fn">Wait</span>() <span class="cm">// blocks until counter reaches 0</span>
+</code><span class="lang-tag">Go</span></pre>
+        <div class="warning"><strong>Common mistake:</strong> Calling <code class="inline-code">wg.Add(1)</code> inside the goroutine &mdash; race condition with <code class="inline-code">Wait()</code>.</div>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q13</span>
+        <h3>sync.Mutex &mdash; mutual exclusion</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">type</span> <span class="tp">BankAccount</span> <span class="kw">struct</span> {
+    mu      sync.Mutex
+    balance <span class="tp">int</span>
+}
+
+<span class="kw">func</span> (a *<span class="tp">BankAccount</span>) <span class="fn">Deposit</span>(amount <span class="tp">int</span>) {
+    a.mu.<span class="fn">Lock</span>()
+    <span class="kw">defer</span> a.mu.<span class="fn">Unlock</span>()
+    a.balance += amount <span class="cm">// safe &mdash; only one goroutine at a time</span>
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q14</span>
+        <h3>sync.RWMutex &mdash; multiple readers OR one writer</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">type</span> <span class="tp">Cache</span> <span class="kw">struct</span> {
+    mu    sync.RWMutex
+    items <span class="kw">map</span>[<span class="tp">string</span>]<span class="tp">string</span>
+}
+
+<span class="kw">func</span> (c *<span class="tp">Cache</span>) <span class="fn">Get</span>(key <span class="tp">string</span>) (<span class="tp">string</span>, <span class="tp">bool</span>) {
+    c.mu.<span class="fn">RLock</span>()         <span class="cm">// shared read lock &mdash; multiple readers OK</span>
+    <span class="kw">defer</span> c.mu.<span class="fn">RUnlock</span>()
+    val, ok := c.items[key]
+    <span class="kw">return</span> val, ok
+}
+
+<span class="kw">func</span> (c *<span class="tp">Cache</span>) <span class="fn">Set</span>(key, value <span class="tp">string</span>) {
+    c.mu.<span class="fn">Lock</span>()          <span class="cm">// exclusive write lock &mdash; blocks all</span>
+    <span class="kw">defer</span> c.mu.<span class="fn">Unlock</span>()
+    c.items[key] = value
+}
+</code><span class="lang-tag">Go</span></pre>
+        <div class="tip"><strong>Rule:</strong> Use RWMutex when read-to-write ratio is &gt;10:1.</div>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q15</span>
+        <h3>sync.Once &mdash; execute exactly once</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">type</span> <span class="tp">DBPool</span> <span class="kw">struct</span> {
+    once sync.Once
+    conn *sql.DB
+}
+
+<span class="kw">func</span> (p *<span class="tp">DBPool</span>) <span class="fn">GetConnection</span>() *sql.DB {
+    p.once.<span class="fn">Do</span>(<span class="kw">func</span>() {
+        <span class="cm">// Runs EXACTLY once, even if 1000 goroutines call this</span>
+        p.conn, _ = sql.<span class="fn">Open</span>(<span class="str">"postgres"</span>, <span class="str">"host=localhost"</span>)
+    })
+    <span class="kw">return</span> p.conn
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q16-Q18</span>
+        <h3>sync.Map, sync.Cond, sync.Pool</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// sync.Map &mdash; concurrent-safe map</span>
+<span class="kw">var</span> m sync.Map
+m.<span class="fn">Store</span>(<span class="str">"key"</span>, <span class="str">"value"</span>)
+val, ok := m.<span class="fn">Load</span>(<span class="str">"key"</span>)
+
+<span class="cm">// sync.Cond &mdash; wait for a condition</span>
+cond := sync.<span class="fn">NewCond</span>(&amp;mu)
+cond.<span class="fn">Wait</span>()      <span class="cm">// releases lock, sleeps, re-acquires on wake</span>
+cond.<span class="fn">Signal</span>()    <span class="cm">// wake ONE waiting goroutine</span>
+cond.<span class="fn">Broadcast</span>() <span class="cm">// wake ALL waiting goroutines</span>
+
+<span class="cm">// sync.Pool &mdash; reuse allocations, reduce GC pressure</span>
+<span class="kw">var</span> bufPool = sync.Pool{
+    New: <span class="kw">func</span>() <span class="kw">interface</span>{} { <span class="kw">return</span> <span class="fn">new</span>(bytes.Buffer) },
+}
+buf := bufPool.<span class="fn">Get</span>().(*bytes.Buffer)
+<span class="kw">defer</span> bufPool.<span class="fn">Put</span>(buf)
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+</div></div>
+<!-- ==================== SECTION 4 ==================== -->
+<div class="section-group">
+<div class="section-header" id="s4">
+    <h2>Section 4: Common Patterns</h2>
+    <span class="difficulty">Difficulty: 55-70% | Q19 - Q26</span>
+</div>
+<div class="section-questions">
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num pattern">Q19</span>
+        <h3>Fan-Out / Fan-In Pattern</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">func</span> <span class="fn">fanIn</span>(channels ...&lt;-<span class="kw">chan</span> <span class="tp">int</span>) &lt;-<span class="kw">chan</span> <span class="tp">int</span> {
+    <span class="kw">var</span> wg sync.WaitGroup
+    merged := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+
+    <span class="kw">for</span> _, ch := <span class="kw">range</span> channels {
+        wg.<span class="fn">Add</span>(<span class="nu">1</span>)
+        <span class="kw">go</span> <span class="kw">func</span>(c &lt;-<span class="kw">chan</span> <span class="tp">int</span>) {
+            <span class="kw">defer</span> wg.<span class="fn">Done</span>()
+            <span class="kw">for</span> val := <span class="kw">range</span> c {
+                merged &lt;- val
+            }
+        }(ch)
+    }
+
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        wg.<span class="fn">Wait</span>()
+        <span class="fn">close</span>(merged)
+    }()
+    <span class="kw">return</span> merged
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num pattern">Q20</span>
+        <h3>Pipeline Pattern</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// Stage 1: Generate</span>
+<span class="kw">func</span> <span class="fn">generate</span>(nums ...<span class="tp">int</span>) &lt;-<span class="kw">chan</span> <span class="tp">int</span> {
+    out := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        <span class="kw">defer</span> <span class="fn">close</span>(out)
+        <span class="kw">for</span> _, n := <span class="kw">range</span> nums { out &lt;- n }
+    }()
+    <span class="kw">return</span> out
+}
+
+<span class="cm">// Stage 2: Square</span>
+<span class="kw">func</span> <span class="fn">square</span>(in &lt;-<span class="kw">chan</span> <span class="tp">int</span>) &lt;-<span class="kw">chan</span> <span class="tp">int</span> {
+    out := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        <span class="kw">defer</span> <span class="fn">close</span>(out)
+        <span class="kw">for</span> n := <span class="kw">range</span> in { out &lt;- n * n }
+    }()
+    <span class="kw">return</span> out
+}
+
+<span class="cm">// Chain: generate &rarr; square &rarr; print</span>
+<span class="kw">for</span> val := <span class="kw">range</span> <span class="fn">square</span>(<span class="fn">generate</span>(<span class="nu">1</span>,<span class="nu">2</span>,<span class="nu">3</span>,<span class="nu">4</span>,<span class="nu">5</span>)) {
+    fmt.<span class="fn">Println</span>(val)
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num pattern">Q21</span>
+        <h3>Worker Pool Pattern</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">func</span> <span class="fn">workerPool</span>(numWorkers <span class="tp">int</span>, jobs &lt;-<span class="kw">chan</span> <span class="tp">Job</span>) &lt;-<span class="kw">chan</span> <span class="tp">Result</span> {
+    results := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">Result</span>)
+    <span class="kw">var</span> wg sync.WaitGroup
+
+    <span class="kw">for</span> w := <span class="nu">0</span>; w &lt; numWorkers; w++ {
+        wg.<span class="fn">Add</span>(<span class="nu">1</span>)
+        <span class="kw">go</span> <span class="kw">func</span>(id <span class="tp">int</span>) {
+            <span class="kw">defer</span> wg.<span class="fn">Done</span>()
+            <span class="kw">for</span> job := <span class="kw">range</span> jobs {
+                results &lt;- <span class="fn">process</span>(id, job)
+            }
+        }(w)
+    }
+
+    <span class="kw">go</span> <span class="kw">func</span>() { wg.<span class="fn">Wait</span>(); <span class="fn">close</span>(results) }()
+    <span class="kw">return</span> results
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num pattern">Q22</span>
+        <h3>Timeout Pattern with select</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">select</span> {
+<span class="kw">case</span> result := &lt;-resultCh:
+    <span class="kw">return</span> result, <span class="kw">nil</span>
+<span class="kw">case</span> err := &lt;-errCh:
+    <span class="kw">return</span> <span class="str">""</span>, err
+<span class="kw">case</span> &lt;-time.<span class="fn">After</span>(<span class="nu">30</span> * time.Second):
+    <span class="kw">return</span> <span class="str">""</span>, fmt.<span class="fn">Errorf</span>(<span class="str">"timeout"</span>)
+<span class="kw">case</span> &lt;-ctx.<span class="fn">Done</span>():
+    <span class="kw">return</span> <span class="str">""</span>, ctx.<span class="fn">Err</span>() <span class="cm">// context cancellation (PREFERRED)</span>
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num pattern">Q23-Q26</span>
+        <h3>Rate Limiter, Semaphore, Done Channel, Or-Done</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// Rate Limiter &mdash; token bucket via channel</span>
+tokens := <span class="fn">make</span>(<span class="kw">chan</span> <span class="kw">struct</span>{}, rps)
+<span class="kw">go</span> <span class="kw">func</span>() {
+    ticker := time.<span class="fn">NewTicker</span>(time.Second / time.<span class="fn">Duration</span>(rps))
+    <span class="kw">for</span> <span class="kw">range</span> ticker.C {
+        <span class="kw">select</span> {
+        <span class="kw">case</span> tokens &lt;- <span class="kw">struct</span>{}{}:
+        <span class="kw">default</span>: <span class="cm">// bucket full</span>
+        }
+    }
+}()
+&lt;-tokens <span class="cm">// consume token before each request</span>
+</code><span class="lang-tag">Go</span></pre>
+<pre><code><span class="cm">// Semaphore &mdash; bounded concurrency via buffered channel</span>
+sem := <span class="fn">make</span>(<span class="kw">chan</span> <span class="kw">struct</span>{}, <span class="nu">10</span>) <span class="cm">// max 10 concurrent</span>
+sem &lt;- <span class="kw">struct</span>{}{} <span class="cm">// acquire (blocks at 10)</span>
+&lt;-sem               <span class="cm">// release</span>
+
+<span class="cm">// Or use errgroup:</span>
+g, ctx := errgroup.<span class="fn">WithContext</span>(ctx)
+g.<span class="fn">SetLimit</span>(<span class="nu">10</span>)
+</code><span class="lang-tag">Go</span></pre>
+<pre><code><span class="cm">// Done channel &mdash; cancellation</span>
+done := <span class="fn">make</span>(<span class="kw">chan</span> <span class="kw">struct</span>{})
+<span class="kw">go</span> <span class="kw">func</span>() {
+    <span class="kw">for</span> {
+        <span class="kw">select</span> {
+        <span class="kw">case</span> &lt;-done:
+            <span class="kw">return</span> <span class="cm">// cancelled</span>
+        <span class="kw">default</span>:
+            <span class="fn">doWork</span>()
+        }
+    }
+}()
+<span class="fn">close</span>(done) <span class="cm">// cancel all listeners</span>
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+</div></div>
+<!-- ==================== SECTION 5 ==================== -->
+<div class="section-group">
+<div class="section-header" id="s5">
+    <h2>Section 5: Advanced Patterns</h2>
+    <span class="difficulty">Difficulty: 70-85% | Q27 - Q31</span>
+</div>
+<div class="section-questions">
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q27</span>
+        <h3>errgroup &mdash; WaitGroup + error handling + cancellation</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code>g, ctx := errgroup.<span class="fn">WithContext</span>(ctx)
+g.<span class="fn">SetLimit</span>(<span class="nu">10</span>) <span class="cm">// max 10 concurrent goroutines</span>
+
+<span class="kw">for</span> _, region := <span class="kw">range</span> regions {
+    r := region
+    g.<span class="fn">Go</span>(<span class="kw">func</span>() <span class="tp">error</span> {
+        resources, err := <span class="fn">fetchResources</span>(ctx, r)
+        <span class="kw">if</span> err != <span class="kw">nil</span> {
+            <span class="kw">return</span> err <span class="cm">// first error cancels ctx for all</span>
+        }
+        mu.<span class="fn">Lock</span>()
+        results[r] = resources
+        mu.<span class="fn">Unlock</span>()
+        <span class="kw">return</span> <span class="kw">nil</span>
+    })
+}
+
+<span class="kw">if</span> err := g.<span class="fn">Wait</span>(); err != <span class="kw">nil</span> {
+    <span class="kw">return</span> <span class="kw">nil</span>, err
+}
+</code><span class="lang-tag">Go</span></pre>
+        <table>
+            <tr><th>Feature</th><th>WaitGroup</th><th>errgroup</th></tr>
+            <tr><td>Wait for all</td><td>&#10004;</td><td>&#10004;</td></tr>
+            <tr><td>Error handling</td><td>Manual</td><td>Built-in</td></tr>
+            <tr><td>Context cancellation</td><td>Manual</td><td>Automatic</td></tr>
+            <tr><td>Concurrency limit</td><td>Manual</td><td><code class="inline-code">SetLimit(n)</code></td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q28</span>
+        <h3>Goroutine Leaks &mdash; Causes and Prevention</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// LEAK: Blocked channel send &mdash; no receiver</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+<span class="kw">go</span> <span class="kw">func</span>() {
+    ch &lt;- <span class="nu">42</span> <span class="cm">// BLOCKS FOREVER &mdash; leaked goroutine</span>
+}()
+
+<span class="cm">// FIX: Use buffered channel</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>, <span class="nu">1</span>)
+
+<span class="cm">// FIX: Use select with context</span>
+<span class="kw">select</span> {
+<span class="kw">case</span> ch &lt;- val:
+<span class="kw">case</span> &lt;-ctx.<span class="fn">Done</span>():
+    <span class="kw">return</span> <span class="cm">// exit on cancellation</span>
+}
+
+<span class="cm">// DETECTION: Use goleak in tests</span>
+<span class="kw">func</span> <span class="fn">TestNoLeaks</span>(t *testing.T) {
+    <span class="kw">defer</span> goleak.<span class="fn">VerifyNone</span>(t)
+    <span class="cm">// ... test code ...</span>
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+</div></div>
+<!-- ==================== SECTION 6 ==================== -->
+<div class="section-group">
+<div class="section-header" id="s6">
+    <h2>Section 6: Go Scheduler Internals</h2>
+    <span class="difficulty">Difficulty: 85-95% | Q32 - Q35</span>
+</div>
+<div class="section-questions">
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num scheduler">Q32</span>
+        <h3>The GMP Model (Goroutine, Machine, Processor)</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// G = Goroutine (unit of work)</span>
+<span class="cm">// M = Machine  (OS thread)</span>
+<span class="cm">// P = Processor (scheduling context, local run queue)</span>
+<span class="cm">//</span>
+<span class="cm">// P0 [G1, G2, G3] &rarr; M0 (thread)</span>
+<span class="cm">// P1 [G4, G5]     &rarr; M1 (thread)</span>
+<span class="cm">// Global Queue: [G6, G7]</span>
+<span class="cm">//</span>
+<span class="cm">// - Each P has local run queue (max 256 Gs)</span>
+<span class="cm">// - Empty P steals from other Ps (work-stealing)</span>
+<span class="cm">// - GOMAXPROCS = number of Ps (default = CPU cores)</span>
+
+fmt.<span class="fn">Println</span>(runtime.<span class="fn">GOMAXPROCS</span>(<span class="nu">0</span>))  <span class="cm">// current value</span>
+fmt.<span class="fn">Println</span>(runtime.<span class="fn">NumGoroutine</span>()) <span class="cm">// active goroutines</span>
+runtime.<span class="fn">Gosched</span>()                  <span class="cm">// yield to scheduler</span>
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num scheduler">Q33</span>
+        <h3>When does a goroutine yield to the scheduler?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// 1. Channel operations</span>
+ch &lt;- value; &lt;-ch
+
+<span class="cm">// 2. System calls (file I/O, network)</span>
+http.<span class="fn">Get</span>(url)
+
+<span class="cm">// 3. time.Sleep</span>
+time.<span class="fn">Sleep</span>(time.Second)
+
+<span class="cm">// 4. Sync operations</span>
+mu.<span class="fn">Lock</span>(); wg.<span class="fn">Wait</span>()
+
+<span class="cm">// 5. runtime.Gosched() &mdash; explicit yield</span>
+runtime.<span class="fn">Gosched</span>()
+
+<span class="cm">// 6. Function calls (Go 1.14+ async preemption)</span>
+<span class="cm">// Even tight loops can be preempted via SIGURG signal</span>
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num scheduler">Q34-Q35</span>
+        <h3>GOMAXPROCS tuning &amp; runtime.LockOSThread()</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// In containers: GOMAXPROCS defaults to HOST CPU, not container limit</span>
+<span class="cm">// Fix: use Uber's automaxprocs</span>
+<span class="kw">import</span> _ <span class="str">"go.uber.org/automaxprocs"</span>
+</code><span class="lang-tag">Go</span></pre>
+<pre><code><span class="cm">// LockOSThread &mdash; pin goroutine to specific OS thread</span>
+<span class="cm">// Needed for: CGO thread-local storage, OpenGL, Linux namespaces</span>
+runtime.<span class="fn">LockOSThread</span>()
+<span class="kw">defer</span> runtime.<span class="fn">UnlockOSThread</span>()
+C.<span class="fn">some_function_using_thread_local_storage</span>()
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+</div></div>
+<!-- ==================== SECTION 7 ==================== -->
+<div class="section-group">
+<div class="section-header" id="s7">
+    <h2>Section 7: Real-World Scenarios</h2>
+    <span class="difficulty">Difficulty: 95-100% | Q36 - Q51</span>
+</div>
+<div class="section-questions">
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q36</span>
+        <h3>How do you debug a deadlock?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// Classic deadlock</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+ch &lt;- <span class="nu">1</span> <span class="cm">// DEADLOCK: no goroutine to receive</span>
+<span class="cm">// fatal error: all goroutines are asleep - deadlock!</span>
+</code><span class="lang-tag">Go</span></pre>
+<pre><code><span class="cm"># Debugging tools:</span>
+kill -QUIT &lt;pid&gt;                          <span class="cm"># goroutine dump</span>
+curl localhost:6060/debug/pprof/goroutine?debug=2  <span class="cm"># pprof</span>
+GOTRACEBACK=all go run main.go            <span class="cm"># detailed stack</span>
+go run -race main.go                      <span class="cm"># race detector</span>
+</code><span class="lang-tag">bash</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q37</span>
+        <h3>Data races &mdash; detection and fixes</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// DATA RACE &mdash; concurrent read+write without sync</span>
+<span class="kw">var</span> counter <span class="tp">int</span>
+<span class="kw">for</span> i := <span class="nu">0</span>; i &lt; <span class="nu">1000</span>; i++ {
+    <span class="kw">go</span> <span class="kw">func</span>() { counter++ }() <span class="cm">// RACE!</span>
+}
+
+<span class="cm">// FIX 1: Mutex</span>
+mu.<span class="fn">Lock</span>(); counter++; mu.<span class="fn">Unlock</span>()
+
+<span class="cm">// FIX 2: Atomic</span>
+atomic.<span class="fn">AddInt64</span>(&amp;counter, <span class="nu">1</span>)
+
+<span class="cm">// DETECT:</span>
+<span class="cm">// go run -race main.go</span>
+<span class="cm">// go test -race ./...</span>
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q38</span>
+        <h3>context.Context propagation through goroutines</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// Context tree:</span>
+<span class="cm">// Background()</span>
+<span class="cm">//   &rarr; WithTimeout(5s)</span>
+<span class="cm">//       &rarr; errgroup context</span>
+<span class="cm">//            &rarr; goroutine 1 (us-east-1)</span>
+<span class="cm">//            &rarr; goroutine 2 (us-west-2)</span>
+<span class="cm">//            &rarr; goroutine 3 (eu-west-1)</span>
+<span class="cm">// If goroutine 2 fails &rarr; errgroup cancels ctx</span>
+<span class="cm">// &rarr; goroutines 1 &amp; 3 see ctx.Done()</span>
+
+ctx, cancel := context.<span class="fn">WithTimeout</span>(context.<span class="fn">Background</span>(), <span class="nu">5</span>*time.Second)
+<span class="kw">defer</span> <span class="fn">cancel</span>()
+
+g, ctx := errgroup.<span class="fn">WithContext</span>(ctx)
+<span class="kw">for</span> _, region := <span class="kw">range</span> regions {
+    r := region
+    g.<span class="fn">Go</span>(<span class="kw">func</span>() <span class="tp">error</span> {
+        <span class="kw">return</span> <span class="fn">queryRegion</span>(ctx, r) <span class="cm">// ctx propagated</span>
+    })
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q39</span>
+        <h3>Graceful shutdown with goroutines</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code>ctx, cancel := context.<span class="fn">WithCancel</span>(context.<span class="fn">Background</span>())
+
+sigCh := <span class="fn">make</span>(<span class="kw">chan</span> os.Signal, <span class="nu">1</span>)
+signal.<span class="fn">Notify</span>(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+<span class="cm">// Start workers</span>
+<span class="kw">var</span> wg sync.WaitGroup
+<span class="kw">for</span> i := <span class="nu">0</span>; i &lt; <span class="nu">5</span>; i++ {
+    wg.<span class="fn">Add</span>(<span class="nu">1</span>)
+    <span class="kw">go</span> <span class="fn">worker</span>(ctx, &amp;wg, i)
+}
+
+&lt;-sigCh          <span class="cm">// wait for signal</span>
+<span class="fn">cancel</span>()          <span class="cm">// cancel all workers</span>
+wg.<span class="fn">Wait</span>()         <span class="cm">// wait for cleanup</span>
+fmt.<span class="fn">Println</span>(<span class="str">"clean shutdown"</span>)
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q44</span>
+        <h3>What happens when a goroutine panics?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+        <p>A panic in <strong>ANY</strong> goroutine kills the <strong>ENTIRE</strong> program.</p>
+<pre><code><span class="cm">// Recovery pattern:</span>
+<span class="kw">func</span> <span class="fn">safeGo</span>(fn <span class="kw">func</span>()) {
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        <span class="kw">defer</span> <span class="kw">func</span>() {
+            <span class="kw">if</span> r := <span class="fn">recover</span>(); r != <span class="kw">nil</span> {
+                fmt.<span class="fn">Printf</span>(<span class="str">"Recovered: %v\n"</span>, r)
+                debug.<span class="fn">PrintStack</span>()
+            }
+        }()
+        <span class="fn">fn</span>()
+    }()
+}
+
+<span class="fn">safeGo</span>(<span class="kw">func</span>() {
+    <span class="fn">panic</span>(<span class="str">"oops"</span>) <span class="cm">// recovered &mdash; doesn't kill program</span>
+})
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q50</span>
+        <h3>singleflight &mdash; deduplicate concurrent calls</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">var</span> group singleflight.Group
+
+<span class="cm">// 100 goroutines call this with same id</span>
+<span class="cm">// Only ONE API call is made &mdash; 99 wait for the result</span>
+<span class="kw">func</span> <span class="fn">getResource</span>(ctx context.Context, id <span class="tp">string</span>) (*<span class="tp">Resource</span>, <span class="tp">error</span>) {
+    result, err, shared := group.<span class="fn">Do</span>(id, <span class="kw">func</span>() (<span class="kw">interface</span>{}, <span class="tp">error</span>) {
+        fmt.<span class="fn">Println</span>(<span class="str">"Actually calling API"</span>) <span class="cm">// prints ONCE</span>
+        <span class="kw">return</span> <span class="fn">fetchFromAPI</span>(ctx, id)
+    })
+    <span class="kw">if</span> shared {
+        fmt.<span class="fn">Println</span>(<span class="str">"Shared result from another goroutine"</span>)
+    }
+    <span class="kw">return</span> result.(*<span class="tp">Resource</span>), err
+}
+</code><span class="lang-tag">Go</span></pre>
+        <div class="tip"><strong>Use case:</strong> Cache miss thundering herd &mdash; 1000 requests for expired key &rarr; 1 DB query.</div>
+    </div>
+</div>
+
+</div></div>
+<!-- ==================== SECTION 8 ==================== -->
+<div class="section-group">
+<div class="section-header" id="s8">
+    <h2>Section 8: Spot The Bug</h2>
+    <span class="difficulty">Interview Favorites | Q52 - Q62</span>
+</div>
+<div class="section-questions">
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num bug">Q52</span>
+        <h3>Bug: Data race on counter++</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// BUGGY CODE:</span>
+size := <span class="nu">100</span>
+result := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>, size)
+counter := <span class="nu">0</span>
+<span class="kw">var</span> wg sync.WaitGroup
+
+<span class="kw">for</span> i := <span class="nu">0</span>; i &lt; size; i++ {
+    wg.<span class="fn">Add</span>(<span class="nu">1</span>)
+    <span class="kw">go</span> <span class="kw">func</span>(val <span class="tp">int</span>) {
+        <span class="kw">defer</span> wg.<span class="fn">Done</span>()
+        counter++       <span class="cm">// DATA RACE!</span>
+        result &lt;- val
+    }(i)
+}
+
+wg.<span class="fn">Wait</span>()
+<span class="fn">close</span>(result)
+fmt.<span class="fn">Printf</span>(<span class="str">"Result: %d\n"</span>, counter) <span class="cm">// 98? 99? 100?</span>
+</code><span class="lang-tag">Go</span></pre>
+        <div class="warning"><strong>Bug:</strong> <code class="inline-code">counter++</code> is 3 operations (read &rarr; add &rarr; write). Two goroutines can read the same value, both add 1, both write &mdash; losing one increment.</div>
+<pre><code><span class="cm">// FIX 1: Mutex</span>
+<span class="kw">var</span> mu sync.Mutex
+mu.<span class="fn">Lock</span>()
+counter++
+mu.<span class="fn">Unlock</span>()
+
+<span class="cm">// FIX 2: Atomic (fastest for simple counter)</span>
+<span class="kw">var</span> counter <span class="tp">int64</span>
+atomic.<span class="fn">AddInt64</span>(&amp;counter, <span class="nu">1</span>)
+
+<span class="cm">// FIX 3: Count from channel (most idiomatic)</span>
+<span class="kw">for</span> <span class="kw">range</span> result { counter++ }
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num bug">Q53</span>
+        <h3>Bug: Loop variable capture</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// Prints "5 5 5 5 5" (not 0 1 2 3 4)</span>
+<span class="kw">for</span> i := <span class="nu">0</span>; i &lt; <span class="nu">5</span>; i++ {
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        fmt.<span class="fn">Println</span>(i) <span class="cm">// captures shared variable i</span>
+    }()
+}
+
+<span class="cm">// FIX: Pass as argument</span>
+<span class="kw">for</span> i := <span class="nu">0</span>; i &lt; <span class="nu">5</span>; i++ {
+    <span class="kw">go</span> <span class="kw">func</span>(n <span class="tp">int</span>) {
+        fmt.<span class="fn">Println</span>(n) <span class="cm">// n gets a COPY of i</span>
+    }(i)
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num bug">Q55</span>
+        <h3>Bug: WaitGroup passed by value</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// BUG: wg is COPIED &mdash; Done() decrements the copy</span>
+<span class="kw">func</span> <span class="fn">worker</span>(wg sync.WaitGroup, id <span class="tp">int</span>) {
+    <span class="kw">defer</span> wg.<span class="fn">Done</span>()
+}
+
+<span class="cm">// FIX: Pass pointer</span>
+<span class="kw">func</span> <span class="fn">worker</span>(wg *sync.WaitGroup, id <span class="tp">int</span>) {
+    <span class="kw">defer</span> wg.<span class="fn">Done</span>()
+}
+</code><span class="lang-tag">Go</span></pre>
+        <div class="warning"><strong>Rule:</strong> Never copy sync.Mutex, WaitGroup, Cond, or Once. <code class="inline-code">go vet</code> catches this.</div>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num bug">Q56</span>
+        <h3>Bug: Send on closed channel (multiple producers)</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// BUG: Producer 1 closes ch, Producer 2 panics on send</span>
+<span class="kw">go</span> <span class="kw">func</span>() { ch &lt;- <span class="nu">1</span>; <span class="fn">close</span>(ch) }()
+<span class="kw">go</span> <span class="kw">func</span>() { ch &lt;- <span class="nu">2</span> }() <span class="cm">// PANIC!</span>
+
+<span class="cm">// FIX: Coordinator closes after ALL producers finish</span>
+<span class="kw">go</span> <span class="kw">func</span>() { wg.<span class="fn">Wait</span>(); <span class="fn">close</span>(ch) }()
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num bug">Q57</span>
+        <h3>Bug: Goroutine leak (unbuffered channel + context cancel)</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// BUG: If ctx cancels, goroutine blocks on ch &lt;- data forever</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">string</span>)    <span class="cm">// unbuffered!</span>
+<span class="kw">go</span> <span class="kw">func</span>() {
+    data := <span class="fn">callAPI</span>()
+    ch &lt;- data <span class="cm">// blocks forever if no receiver (LEAK)</span>
+}()
+<span class="kw">select</span> {
+<span class="kw">case</span> &lt;-ctx.<span class="fn">Done</span>(): <span class="kw">return</span> <span class="cm">// exits, goroutine leaked</span>
+<span class="kw">case</span> d := &lt;-ch: <span class="kw">return</span> d
+}
+
+<span class="cm">// FIX: Buffered channel (size 1)</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">string</span>, <span class="nu">1</span>) <span class="cm">// sender won't block</span>
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num bug">Q58</span>
+        <h3>Bug: Concurrent map writes (fatal crash)</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// BUG: Go maps are NOT concurrent-safe</span>
+m := <span class="fn">make</span>(<span class="kw">map</span>[<span class="tp">string</span>]<span class="tp">int</span>)
+<span class="kw">go</span> <span class="kw">func</span>() { m[<span class="str">"a"</span>] = <span class="nu">1</span> }()
+<span class="kw">go</span> <span class="kw">func</span>() { m[<span class="str">"b"</span>] = <span class="nu">2</span> }()
+<span class="cm">// fatal error: concurrent map writes</span>
+
+<span class="cm">// FIX 1: Mutex</span>
+mu.<span class="fn">Lock</span>(); m[key] = val; mu.<span class="fn">Unlock</span>()
+
+<span class="cm">// FIX 2: sync.Map</span>
+<span class="kw">var</span> m sync.Map
+m.<span class="fn">Store</span>(key, val)
+
+<span class="cm">// FIX 3: Single goroutine owns the map</span>
+<span class="kw">for</span> e := <span class="kw">range</span> entryCh { m[e.key] = e.val }
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num bug">Q62</span>
+        <h3>Real-world: Production-grade concurrent fan-out pattern</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">func</span> <span class="fn">listResources</span>(ctx context.Context, regions []<span class="tp">string</span>) ([]<span class="tp">Resource</span>, <span class="tp">error</span>) {
+    g, ctx := errgroup.<span class="fn">WithContext</span>(ctx)
+    g.<span class="fn">SetLimit</span>(<span class="nu">5</span>) <span class="cm">// max 5 concurrent region queries</span>
+
+    <span class="kw">var</span> mu sync.Mutex
+    <span class="kw">var</span> all []<span class="tp">Resource</span>
+
+    <span class="kw">for</span> _, region := <span class="kw">range</span> regions {
+        r := region <span class="cm">// capture loop var</span>
+        g.<span class="fn">Go</span>(<span class="kw">func</span>() <span class="tp">error</span> {
+            resources, err := <span class="fn">fetchRegion</span>(ctx, r)
+            <span class="kw">if</span> err != <span class="kw">nil</span> {
+                <span class="kw">return</span> fmt.<span class="fn">Errorf</span>(<span class="str">"region %s: %w"</span>, r, err)
+            }
+            mu.<span class="fn">Lock</span>()
+            all = <span class="fn">append</span>(all, resources...)
+            mu.<span class="fn">Unlock</span>()
+            <span class="kw">return</span> <span class="kw">nil</span>
+        })
+    }
+    <span class="kw">return</span> all, g.<span class="fn">Wait</span>()
+}
+</code><span class="lang-tag">Go</span></pre>
+        <p><strong>What makes this production-quality:</strong></p>
+        <ul>
+            <li>&#10004; Bounded concurrency (<code class="inline-code">SetLimit(5)</code>)</li>
+            <li>&#10004; Error propagation (first error cancels all)</li>
+            <li>&#10004; Context cancellation (user can cancel SQL query)</li>
+            <li>&#10004; Thread-safe result collection (mutex)</li>
+            <li>&#10004; Error wrapping with region context</li>
+        </ul>
+    </div>
+</div>
+
+</div></div>
+<!-- ==================== SECTION 9 ==================== -->
+<div class="section-group">
+<div class="section-header" id="s9">
+    <h2>Section 9: Frequently Missed Topics</h2>
+    <span class="difficulty">Interview Must-Know | Q63 - Q77</span>
+</div>
+<div class="section-questions">
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q63</span>
+        <h3>Race condition vs data race &mdash; what's the difference?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+        <p><strong>Data race</strong> &mdash; two goroutines access the same variable concurrently, at least one writes, no synchronization. Detected by <code class="inline-code">go run -race</code>.</p>
+        <p><strong>Race condition</strong> &mdash; program correctness depends on ordering of operations. <strong>NOT detected</strong> by the race detector.</p>
+<pre><code><span class="cm">// DATA RACE &mdash; detected by -race</span>
+<span class="kw">var</span> counter <span class="tp">int</span>
+<span class="kw">go</span> <span class="kw">func</span>() { counter++ }()
+<span class="kw">go</span> <span class="kw">func</span>() { counter++ }()
+
+<span class="cm">// RACE CONDITION (no data race!) &mdash; NOT detected</span>
+<span class="cm">// TOCTOU: Time-of-check to time-of-use</span>
+<span class="kw">func</span> <span class="fn">withdraw</span>(amount <span class="tp">int</span>) {
+    mu.<span class="fn">Lock</span>()
+    ok := balance >= amount
+    mu.<span class="fn">Unlock</span>()
+    <span class="cm">// &lt;-- another goroutine can change balance here!</span>
+    <span class="kw">if</span> ok {
+        mu.<span class="fn">Lock</span>()
+        balance -= amount <span class="cm">// might go negative!</span>
+        mu.<span class="fn">Unlock</span>()
+    }
+}
+
+<span class="cm">// FIX: hold lock for entire check-and-act</span>
+mu.<span class="fn">Lock</span>()
+<span class="kw">defer</span> mu.<span class="fn">Unlock</span>()
+<span class="kw">if</span> balance >= amount { balance -= amount }
+</code><span class="lang-tag">Go</span></pre>
+        <div class="warning"><strong>Key point:</strong> <code class="inline-code">-race</code> catches data races but NOT race conditions.</div>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q64</span>
+        <h3>When should you NOT use goroutines?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// BAD: goroutine for trivial operation</span>
+ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+<span class="kw">go</span> <span class="kw">func</span>() { ch &lt;- a + b }() <span class="cm">// overhead &gt; computation</span>
+<span class="cm">// GOOD: just return a + b</span>
+
+<span class="cm">// BAD: unbounded goroutines</span>
+<span class="kw">for</span> _, req := <span class="kw">range</span> requests {
+    <span class="kw">go</span> <span class="fn">process</span>(req) <span class="cm">// 1M reqs = 1M goroutines = OOM</span>
+}
+<span class="cm">// GOOD: bounded pool</span>
+g.<span class="fn">SetLimit</span>(<span class="nu">100</span>)
+</code><span class="lang-tag">Go</span></pre>
+        <div class="tip"><strong>Rule:</strong> If work per goroutine &lt; ~1-2&micro;s, the overhead outweighs the benefit.</div>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q65</span>
+        <h3>Why doesn't Go expose goroutine IDs?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+        <p>Prevents goroutine-local storage (implicit state, hard to test). Forces explicit data passing.</p>
+<pre><code><span class="cm">// WRONG: hack to get goroutine ID</span>
+runtime.<span class="fn">Stack</span>(buf[:], <span class="kw">false</span>) <span class="cm">// parse "goroutine 123 [running]"</span>
+
+<span class="cm">// RIGHT: pass identity explicitly</span>
+<span class="kw">func</span> <span class="fn">worker</span>(ctx context.Context, workerID <span class="tp">int</span>, jobs &lt;-<span class="kw">chan</span> <span class="tp">Job</span>) {
+    log.<span class="fn">Printf</span>(<span class="str">"worker-%d processing"</span>, workerID)
+}
+
+<span class="cm">// RIGHT: use context for request-scoped values</span>
+requestID := ctx.<span class="fn">Value</span>(<span class="str">"requestID"</span>).(<span class="tp">string</span>)
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q66</span>
+        <h3>WaitGroup vs Channel &mdash; when to use which?</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+        <table>
+            <tr><th>Need</th><th>Use</th></tr>
+            <tr><td>Wait for all, no results</td><td><code class="inline-code">sync.WaitGroup</code></td></tr>
+            <tr><td>Wait for all + collect results</td><td>Buffered channel</td></tr>
+            <tr><td>Wait for first (race)</td><td>Channel + select</td></tr>
+            <tr><td>Wait with error handling</td><td><code class="inline-code">errgroup</code></td></tr>
+            <tr><td>Wait with timeout</td><td><code class="inline-code">context.WithTimeout</code></td></tr>
+            <tr><td>Signal done/cancel</td><td><code class="inline-code">chan struct{}</code> or context</td></tr>
+        </table>
+<pre><code><span class="cm">// WaitGroup: fire and forget</span>
+wg.<span class="fn">Add</span>(<span class="nu">1</span>); <span class="kw">go</span> <span class="kw">func</span>() { <span class="kw">defer</span> wg.<span class="fn">Done</span>(); <span class="fn">work</span>() }()
+wg.<span class="fn">Wait</span>()
+
+<span class="cm">// Channel: collect results</span>
+results := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">Result</span>, n)
+<span class="kw">for</span> i := <span class="nu">0</span>; i &lt; n; i++ { <span class="fn">process</span>(&lt;-results) }
+
+<span class="cm">// Channel: first wins (race)</span>
+<span class="kw">select</span> {
+<span class="kw">case</span> r := &lt;-server1: <span class="kw">return</span> r
+<span class="kw">case</span> r := &lt;-server2: <span class="kw">return</span> r
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num pattern">Q67</span>
+        <h3>Implement the Generator pattern</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">func</span> <span class="fn">fibonacci</span>(ctx context.Context) &lt;-<span class="kw">chan</span> <span class="tp">int</span> {
+    ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        <span class="kw">defer</span> <span class="fn">close</span>(ch)
+        a, b := <span class="nu">0</span>, <span class="nu">1</span>
+        <span class="kw">for</span> {
+            <span class="kw">select</span> {
+            <span class="kw">case</span> &lt;-ctx.<span class="fn">Done</span>(): <span class="kw">return</span>
+            <span class="kw">case</span> ch &lt;- a:
+                a, b = b, a+b
+            }
+        }
+    }()
+    <span class="kw">return</span> ch
+}
+
+<span class="kw">for</span> val := <span class="kw">range</span> <span class="fn">fibonacci</span>(ctx) {
+    <span class="kw">if</span> val > <span class="nu">100</span> { <span class="kw">break</span> }
+    fmt.<span class="fn">Println</span>(val)
+}
+<span class="cm">// Output: 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89</span>
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q68</span>
+        <h3>Explain livelock and starvation</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// LIVELOCK: both retry in lockstep &mdash; no progress</span>
+<span class="kw">for</span> {
+    <span class="kw">if</span> from.mu.<span class="fn">TryLock</span>() {
+        <span class="kw">if</span> to.mu.<span class="fn">TryLock</span>() { <span class="cm">/* transfer */</span>; <span class="kw">return</span> }
+        from.mu.<span class="fn">Unlock</span>()
+    }
+    <span class="cm">// Both goroutines keep retrying simultaneously!</span>
+}
+
+<span class="cm">// FIX: random backoff</span>
+time.<span class="fn">Sleep</span>(time.<span class="fn">Duration</span>(rand.<span class="fn">Intn</span>(<span class="nu">100</span>)) * time.Millisecond)
+
+<span class="cm">// BETTER: lock ordering &mdash; always lock lower ID first</span>
+</code><span class="lang-tag">Go</span></pre>
+        <table>
+            <tr><th>Problem</th><th>Goroutines</th><th>CPU</th><th>Progress</th></tr>
+            <tr><td>Deadlock</td><td>Blocked</td><td>Idle</td><td>None</td></tr>
+            <tr><td>Livelock</td><td>Active</td><td>Busy</td><td>None</td></tr>
+            <tr><td>Starvation</td><td>Mixed</td><td>Varies</td><td>Unfair</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num pattern">Q69</span>
+        <h3>Tee channel &mdash; split one channel into two</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">func</span> <span class="fn">tee</span>(ctx context.Context, in &lt;-<span class="kw">chan</span> <span class="tp">int</span>) (&lt;-<span class="kw">chan</span> <span class="tp">int</span>, &lt;-<span class="kw">chan</span> <span class="tp">int</span>) {
+    out1 := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+    out2 := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        <span class="kw">defer</span> <span class="fn">close</span>(out1); <span class="kw">defer</span> <span class="fn">close</span>(out2)
+        <span class="kw">for</span> val := <span class="kw">range</span> in {
+            o1, o2 := out1, out2
+            <span class="kw">for</span> i := <span class="nu">0</span>; i &lt; <span class="nu">2</span>; i++ {
+                <span class="kw">select</span> {
+                <span class="kw">case</span> o1 &lt;- val: o1 = <span class="kw">nil</span>
+                <span class="kw">case</span> o2 &lt;- val: o2 = <span class="kw">nil</span>
+                <span class="kw">case</span> &lt;-ctx.<span class="fn">Done</span>(): <span class="kw">return</span>
+                }
+            }
+        }
+    }()
+    <span class="kw">return</span> out1, out2
+}
+<span class="cm">// Use: send same data to logger AND processor</span>
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num pattern">Q70</span>
+        <h3>Bridge channel &mdash; flatten channel of channels</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">func</span> <span class="fn">bridge</span>(ctx context.Context, chanCh &lt;-<span class="kw">chan</span> &lt;-<span class="kw">chan</span> <span class="tp">int</span>) &lt;-<span class="kw">chan</span> <span class="tp">int</span> {
+    out := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">int</span>)
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        <span class="kw">defer</span> <span class="fn">close</span>(out)
+        <span class="kw">for</span> {
+            <span class="kw">var</span> ch &lt;-<span class="kw">chan</span> <span class="tp">int</span>
+            <span class="kw">select</span> {
+            <span class="kw">case</span> maybeCh, ok := &lt;-chanCh:
+                <span class="kw">if</span> !ok { <span class="kw">return</span> }
+                ch = maybeCh
+            <span class="kw">case</span> &lt;-ctx.<span class="fn">Done</span>(): <span class="kw">return</span>
+            }
+            <span class="kw">for</span> val := <span class="kw">range</span> ch {
+                <span class="kw">select</span> {
+                <span class="kw">case</span> out &lt;- val:
+                <span class="kw">case</span> &lt;-ctx.<span class="fn">Done</span>(): <span class="kw">return</span>
+                }
+            }
+        }
+    }()
+    <span class="kw">return</span> out
+}
+<span class="cm">// Use: paginated APIs &mdash; each page is a channel,</span>
+<span class="cm">// bridge gives a flat stream of all results</span>
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num bug">Q71</span>
+        <h3>Bug: Mutex self-deadlock (re-entrant locking)</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// DEADLOCK: Go's Mutex is NOT re-entrant</span>
+<span class="kw">func</span> <span class="fn">A</span>() {
+    mu.<span class="fn">Lock</span>(); <span class="kw">defer</span> mu.<span class="fn">Unlock</span>()
+    <span class="fn">B</span>() <span class="cm">// calls B while holding lock</span>
+}
+<span class="kw">func</span> <span class="fn">B</span>() {
+    mu.<span class="fn">Lock</span>() <span class="cm">// DEADLOCK: mu already locked by A</span>
+    <span class="kw">defer</span> mu.<span class="fn">Unlock</span>()
+}
+
+<span class="cm">// FIX: separate internal (unlocked) functions</span>
+<span class="kw">func</span> <span class="fn">A</span>() {
+    mu.<span class="fn">Lock</span>(); <span class="kw">defer</span> mu.<span class="fn">Unlock</span>()
+    <span class="fn">bInternal</span>() <span class="cm">// call unlocked version</span>
+}
+<span class="kw">func</span> <span class="fn">B</span>() {
+    mu.<span class="fn">Lock</span>(); <span class="kw">defer</span> mu.<span class="fn">Unlock</span>()
+    <span class="fn">bInternal</span>()
+}
+<span class="kw">func</span> <span class="fn">bInternal</span>() { <span class="cm">/* assumes lock held */</span> }
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q72</span>
+        <h3>Future/Promise pattern with generics</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">type</span> <span class="tp">Future</span>[<span class="tp">T</span> <span class="kw">any</span>] <span class="kw">struct</span> {
+    ch     <span class="kw">chan</span> <span class="kw">struct</span>{}
+    result <span class="tp">T</span>
+    err    <span class="tp">error</span>
+}
+
+<span class="kw">func</span> <span class="fn">NewFuture</span>[<span class="tp">T</span> <span class="kw">any</span>](fn <span class="kw">func</span>() (<span class="tp">T</span>, <span class="tp">error</span>)) *<span class="tp">Future</span>[<span class="tp">T</span>] {
+    f := &amp;<span class="tp">Future</span>[<span class="tp">T</span>]{ch: <span class="fn">make</span>(<span class="kw">chan</span> <span class="kw">struct</span>{})}
+    <span class="kw">go</span> <span class="kw">func</span>() {
+        f.result, f.err = <span class="fn">fn</span>()
+        <span class="fn">close</span>(f.ch) <span class="cm">// signal completion</span>
+    }()
+    <span class="kw">return</span> f
+}
+
+<span class="kw">func</span> (f *<span class="tp">Future</span>[<span class="tp">T</span>]) <span class="fn">Get</span>() (<span class="tp">T</span>, <span class="tp">error</span>) {
+    &lt;-f.ch
+    <span class="kw">return</span> f.result, f.err
+}
+
+<span class="cm">// Fire 3 async calls, block only when needed</span>
+user := <span class="fn">NewFuture</span>(<span class="kw">func</span>() (*<span class="tp">User</span>, <span class="tp">error</span>) { <span class="kw">return</span> <span class="fn">fetchUser</span>(id) })
+orders := <span class="fn">NewFuture</span>(<span class="kw">func</span>() ([]<span class="tp">Order</span>, <span class="tp">error</span>) { <span class="kw">return</span> <span class="fn">fetchOrders</span>(id) })
+u, _ := user.<span class="fn">Get</span>()   <span class="cm">// total = max(times), not sum</span>
+o, _ := orders.<span class="fn">Get</span>()
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num">Q73</span>
+        <h3>Lazy initialization alternatives to sync.Once</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// 1. sync.Once (standard)</span>
+once.<span class="fn">Do</span>(<span class="kw">func</span>() { instance = <span class="fn">connectDB</span>() })
+
+<span class="cm">// 2. sync.OnceValue (Go 1.21+ &mdash; cleaner)</span>
+<span class="kw">var</span> getConfig = sync.<span class="fn">OnceValue</span>(<span class="kw">func</span>() *<span class="tp">Config</span> {
+    <span class="kw">return</span> <span class="fn">loadConfig</span>()
+})
+
+<span class="cm">// 3. atomic.Pointer (Go 1.19+ &mdash; lock-free)</span>
+<span class="kw">var</span> dbPtr atomic.Pointer[<span class="tp">DB</span>]
+<span class="kw">if</span> db := dbPtr.<span class="fn">Load</span>(); db != <span class="kw">nil</span> { <span class="kw">return</span> db }
+dbPtr.<span class="fn">CompareAndSwap</span>(<span class="kw">nil</span>, <span class="fn">connectDB</span>())
+</code><span class="lang-tag">Go</span></pre>
+        <table>
+            <tr><th>Method</th><th>Lazy</th><th>Best for</th></tr>
+            <tr><td><code class="inline-code">sync.Once</code></td><td>Yes</td><td>Most cases</td></tr>
+            <tr><td><code class="inline-code">sync.OnceValue</code></td><td>Yes</td><td>Go 1.21+ (cleaner)</td></tr>
+            <tr><td><code class="inline-code">atomic.Pointer</code></td><td>Yes</td><td>Hot path, no lock</td></tr>
+            <tr><td>Package var</td><td>No</td><td>Always-needed</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num pattern">Q74</span>
+        <h3>Channel of Channels &mdash; request-response pattern</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">type</span> <span class="tp">Request</span> <span class="kw">struct</span> {
+    Query    <span class="tp">string</span>
+    Response <span class="kw">chan</span>&lt;- <span class="tp">Result</span> <span class="cm">// caller provides response channel</span>
+}
+
+<span class="kw">func</span> <span class="fn">server</span>(requests &lt;-<span class="kw">chan</span> <span class="tp">Request</span>) {
+    <span class="kw">for</span> req := <span class="kw">range</span> requests {
+        result := <span class="fn">processQuery</span>(req.Query)
+        req.Response &lt;- result
+    }
+}
+
+<span class="kw">func</span> <span class="fn">client</span>(requests <span class="kw">chan</span>&lt;- <span class="tp">Request</span>) {
+    respCh := <span class="fn">make</span>(<span class="kw">chan</span> <span class="tp">Result</span>, <span class="nu">1</span>)
+    requests &lt;- <span class="tp">Request</span>{<span class="str">"SELECT * FROM users"</span>, respCh}
+    result := &lt;-respCh
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num scheduler">Q75</span>
+        <h3>iter.Seq &mdash; range over functions (Go 1.23+)</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// Go 1.23+: iterator without goroutines or channels</span>
+<span class="kw">func</span> <span class="fn">fibonacci</span>() iter.Seq[<span class="tp">int</span>] {
+    <span class="kw">return</span> <span class="kw">func</span>(yield <span class="kw">func</span>(<span class="tp">int</span>) <span class="tp">bool</span>) {
+        a, b := <span class="nu">0</span>, <span class="nu">1</span>
+        <span class="kw">for</span> {
+            <span class="kw">if</span> !<span class="fn">yield</span>(a) { <span class="kw">return</span> }
+            a, b = b, a+b
+        }
+    }
+}
+
+<span class="kw">for</span> val := <span class="kw">range</span> <span class="fn">fibonacci</span>() {
+    <span class="kw">if</span> val > <span class="nu">100</span> { <span class="kw">break</span> }
+    fmt.<span class="fn">Println</span>(val)
+}
+</code><span class="lang-tag">Go</span></pre>
+        <table>
+            <tr><th>Feature</th><th>Channels</th><th>iter.Seq</th></tr>
+            <tr><td>Goroutine needed</td><td>Yes</td><td>No</td></tr>
+            <tr><td>Overhead</td><td>Higher</td><td>Lower</td></tr>
+            <tr><td>Concurrent</td><td>Yes</td><td>No</td></tr>
+            <tr><td>Best for</td><td>Concurrent producers</td><td>Sequential iteration</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q76</span>
+        <h3>Dining Philosophers problem in Go</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="cm">// DEADLOCK-PRONE: all pick up left, wait for right</span>
+p.leftFork.mu.<span class="fn">Lock</span>()
+p.rightFork.mu.<span class="fn">Lock</span>() <span class="cm">// circular wait &rarr; DEADLOCK</span>
+
+<span class="cm">// FIX: resource ordering &mdash; break circular wait</span>
+<span class="kw">func</span> (p *<span class="tp">Philosopher</span>) <span class="fn">eat</span>() {
+    first, second := p.leftFork, p.rightFork
+    <span class="kw">if</span> p.id%<span class="nu">2</span> == <span class="nu">0</span> {
+        first, second = p.rightFork, p.leftFork
+    }
+    first.mu.<span class="fn">Lock</span>()
+    second.mu.<span class="fn">Lock</span>()
+    fmt.<span class="fn">Printf</span>(<span class="str">"Philosopher %d eating\n"</span>, p.id)
+    second.mu.<span class="fn">Unlock</span>()
+    first.mu.<span class="fn">Unlock</span>()
+}
+
+<span class="cm">// Go-idiomatic: forks as buffered channels</span>
+forks[i] = <span class="fn">make</span>(<span class="kw">chan</span> <span class="kw">struct</span>{}, <span class="nu">1</span>)
+forks[i] &lt;- <span class="kw">struct</span>{}{} <span class="cm">// available</span>
+&lt;-forks[left]             <span class="cm">// pick up</span>
+forks[left] &lt;- <span class="kw">struct</span>{}{} <span class="cm">// put down</span>
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+<div class="question">
+    <div class="question-header" onclick="toggle(this.parentElement)">
+        <span class="q-num advanced">Q77</span>
+        <h3>Concurrent-safe LRU cache</h3>
+        <span class="toggle">&#9660;</span>
+    </div>
+    <div class="answer">
+<pre><code><span class="kw">type</span> <span class="tp">LRUCache</span> <span class="kw">struct</span> {
+    mu       sync.Mutex
+    capacity <span class="tp">int</span>
+    items    <span class="kw">map</span>[<span class="tp">string</span>]*list.Element
+    order    *list.List
+}
+
+<span class="kw">func</span> (c *<span class="tp">LRUCache</span>) <span class="fn">Get</span>(key <span class="tp">string</span>) (<span class="kw">interface</span>{}, <span class="tp">bool</span>) {
+    c.mu.<span class="fn">Lock</span>()
+    <span class="kw">defer</span> c.mu.<span class="fn">Unlock</span>()
+    <span class="kw">if</span> elem, ok := c.items[key]; ok {
+        c.order.<span class="fn">MoveToFront</span>(elem)
+        <span class="kw">return</span> elem.Value.(*entry).value, <span class="kw">true</span>
+    }
+    <span class="kw">return</span> <span class="kw">nil</span>, <span class="kw">false</span>
+}
+
+<span class="kw">func</span> (c *<span class="tp">LRUCache</span>) <span class="fn">Put</span>(key <span class="tp">string</span>, value <span class="kw">interface</span>{}) {
+    c.mu.<span class="fn">Lock</span>()
+    <span class="kw">defer</span> c.mu.<span class="fn">Unlock</span>()
+    <span class="kw">if</span> elem, ok := c.items[key]; ok {
+        c.order.<span class="fn">MoveToFront</span>(elem)
+        elem.Value.(*entry).value = value
+        <span class="kw">return</span>
+    }
+    <span class="kw">if</span> c.order.<span class="fn">Len</span>() >= c.capacity {
+        oldest := c.order.<span class="fn">Back</span>()
+        c.order.<span class="fn">Remove</span>(oldest)
+        <span class="fn">delete</span>(c.items, oldest.Value.(*entry).key)
+    }
+    elem := c.order.<span class="fn">PushFront</span>(&amp;entry{key, value})
+    c.items[key] = elem
+}
+</code><span class="lang-tag">Go</span></pre>
+    </div>
+</div>
+
+</div></div>
+<!-- ==================== CHEAT SHEET ==================== -->
+<div class="section-group">
+<div class="section-header">
+    <h2>Goroutine Patterns Cheat Sheet</h2>
+    <span class="difficulty">Quick Reference</span>
+</div>
+<div class="section-questions">
+
+<table>
+    <tr><th>Pattern</th><th>Use Case</th><th>Key Tool</th></tr>
+    <tr><td>Fan-out/Fan-in</td><td>Parallel processing</td><td>Channels + WaitGroup</td></tr>
+    <tr><td>Pipeline</td><td>Stage-based processing</td><td>Channels chain</td></tr>
+    <tr><td>Worker Pool</td><td>Bounded parallelism</td><td>Buffered job channel</td></tr>
+    <tr><td>Semaphore</td><td>Limit concurrency</td><td>Buffered channel / errgroup.SetLimit</td></tr>
+    <tr><td>Rate Limiter</td><td>Throttle requests</td><td>time.Ticker + channel</td></tr>
+    <tr><td>Circuit Breaker</td><td>Fault tolerance</td><td>Mutex + state machine</td></tr>
+    <tr><td>Singleflight</td><td>Deduplicate calls</td><td>golang.org/x/sync/singleflight</td></tr>
+    <tr><td>Timeout</td><td>Time-bound operations</td><td>context.WithTimeout</td></tr>
+    <tr><td>Graceful Shutdown</td><td>Clean exit</td><td>Signal + context + WaitGroup</td></tr>
+</table>
+
+</div></div>
+
+</div>
+
+<div class="footer">
+    <p><strong>Partha Sarathi Behera</strong> &mdash; Senior Software Engineer | Go (Golang)</p>
+    <p>
+        <a href="https://github.com/ParthaI" target="_blank">GitHub</a> &nbsp;&bull;&nbsp;
+        <a href="https://linkedin.com/in/partha-sarathi-behera-55a5a2181" target="_blank">LinkedIn</a>
+    </p>
+    <p style="margin-top: 1rem;">78 Questions &bull; 9 Sections &bull; Fundamentals to Expert</p>
+</div>
+
+<script>
+function toggle(el) {
+    el.classList.toggle('open');
+}
+
+function toggleAll() {
+    const questions = document.querySelectorAll('.question');
+    const anyOpen = Array.from(questions).some(q => q.classList.contains('open'));
+    questions.forEach(q => {
+        if (anyOpen) {
+            q.classList.remove('open');
+        } else {
+            q.classList.add('open');
+        }
+    });
+}
+
+// Highlight active nav on scroll
+const sections = document.querySelectorAll('.section-header[id]');
+const navLinks = document.querySelectorAll('.nav a');
+
+window.addEventListener('scroll', () => {
+    let current = '';
+    sections.forEach(section => {
+        const rect = section.getBoundingClientRect();
+        if (rect.top <= 100) {
+            current = section.id;
+        }
+    });
+    navLinks.forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('href') === '#' + current) {
+            link.classList.add('active');
+        }
+    });
+});
+</script>
+
+</body>
+</html>

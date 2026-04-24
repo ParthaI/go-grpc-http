@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Go GC — Source Code Walkthrough (Under the Hood)</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface-2: #1f2733;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-2: #7ee787;
+    --warning: #f0883e;
+    --danger: #ff7b72;
+    --purple: #d2a8ff;
+    --pink: #ff9ecb;
+    --code-bg: #0b1020;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+  }
+  header {
+    background: linear-gradient(135deg, #1f2733 0%, #0d1117 100%);
+    padding: 60px 40px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 2.4rem; margin: 0 0 10px 0; color: var(--accent); }
+  header p { color: var(--muted); font-size: 1.05rem; margin: 0; }
+  main { max-width: 1050px; margin: 0 auto; padding: 40px 24px; }
+  nav.toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 28px;
+    margin-bottom: 40px;
+  }
+  nav.toc h2 { margin-top: 0; color: var(--accent-2); font-size: 1.2rem; }
+  nav.toc ul { padding-left: 20px; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px 32px;
+    margin-bottom: 30px;
+  }
+  h2 {
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+    font-size: 1.55rem;
+  }
+  h3 { color: var(--accent-2); margin-top: 26px; }
+  h4 { color: var(--warning); margin-bottom: 8px; }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); font-style: italic; }
+  code {
+    background: var(--code-bg);
+    color: #c9d1d9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 0.92em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 0.88rem;
+    line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; }
+  .file-header {
+    background: var(--surface-2);
+    color: var(--accent-2);
+    padding: 8px 14px;
+    border-radius: 6px 6px 0 0;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 0.85rem;
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .file-header::before {
+    content: "📄";
+  }
+  .file-header + pre {
+    border-radius: 0 0 8px 8px;
+    margin-top: 0;
+  }
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: var(--surface-2);
+    padding: 14px 18px;
+    border-radius: 6px;
+    margin: 18px 0;
+  }
+  .callout.warning { border-left-color: var(--warning); }
+  .callout.danger { border-left-color: var(--danger); }
+  .callout.success { border-left-color: var(--accent-2); }
+  .callout.info { border-left-color: var(--purple); }
+  table { width: 100%; border-collapse: collapse; margin: 18px 0; }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--surface-2); color: var(--accent-2); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin: 18px 0;
+  }
+  .card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+  }
+  .card strong { color: var(--accent-2); }
+  footer {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+  .flow-diagram {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 18px 0;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-x: auto;
+    color: #c9d1d9;
+  }
+  .gc-loop-wrapper {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 24px;
+    margin: 24px 0;
+    align-items: start;
+  }
+  .gc-loop-stage {
+    position: relative;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    min-height: 620px;
+    overflow: hidden;
+  }
+  .gc-ring {
+    position: relative;
+    width: 100%;
+    height: 620px;
+  }
+  .gc-ring svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .gc-node {
+    position: absolute;
+    background: var(--surface-2);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px 8px 30px;
+    cursor: pointer;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text);
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    z-index: 2;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    user-select: none;
+  }
+  .gc-node .num {
+    position: absolute;
+    left: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid currentColor;
+    color: currentColor;
+    font-size: 0.75rem;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, sans-serif;
+  }
+  .gc-node.start .num {
+    background: var(--accent-2);
+    color: var(--bg);
+    border-color: var(--accent-2);
+    box-shadow: 0 0 12px rgba(126,231,135,0.6);
+  }
+  .gc-node.end .num {
+    background: var(--danger);
+    color: var(--bg);
+    border-color: var(--danger);
+    box-shadow: 0 0 12px rgba(255,123,114,0.6);
+  }
+  .gc-node.aux {
+    padding: 8px 12px;
+  }
+  .gc-node.aux .num {
+    position: absolute;
+    left: -10px;
+    background: var(--warning);
+    color: var(--bg);
+    border-color: var(--warning);
+    font-size: 0.7rem;
+  }
+  .start-end-legend {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  .start-end-legend .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .start-end-legend .dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: bold;
+    color: var(--bg);
+  }
+  .dot.start { background: var(--accent-2); }
+  .dot.end { background: var(--danger); }
+  .gc-node:hover {
+    transform: translate(-50%, -50%) scale(1.08);
+    box-shadow: 0 0 18px rgba(88,166,255,0.45);
+    z-index: 3;
+  }
+  .gc-node.active {
+    transform: translate(-50%, -50%) scale(1.1);
+    box-shadow: 0 0 22px rgba(126,231,135,0.7);
+    z-index: 3;
+  }
+  .gc-node.stw { border-color: var(--danger); color: var(--danger); }
+  .gc-node.stw.active { background: rgba(255,123,114,0.15); box-shadow: 0 0 22px rgba(255,123,114,0.7); }
+  .gc-node.concurrent { border-color: var(--accent-2); color: var(--accent-2); }
+  .gc-node.concurrent.active { background: rgba(126,231,135,0.15); }
+  .gc-node.alloc { border-color: var(--purple); color: var(--purple); }
+  .gc-node.alloc.active { background: rgba(210,168,255,0.15); box-shadow: 0 0 22px rgba(210,168,255,0.7); }
+  .gc-node.aux { border-color: var(--warning); color: var(--warning); border-style: dashed; }
+  .gc-node.aux.active { background: rgba(240,136,62,0.15); box-shadow: 0 0 22px rgba(240,136,62,0.7); }
+
+  .gc-phase-label {
+    position: absolute;
+    font-size: 0.7rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .gc-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 0;
+  }
+  .gc-center .loop-icon {
+    font-size: 2.4rem;
+    color: var(--accent);
+    animation: spin 8s linear infinite;
+  }
+  .gc-center .loop-text {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 6px;
+    letter-spacing: 1px;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  .gc-details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    position: sticky;
+    top: 20px;
+    min-height: 400px;
+  }
+  .gc-details .d-phase {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: bold;
+    margin-bottom: 10px;
+  }
+  .gc-details .d-phase.stw { background: var(--danger); color: var(--bg); }
+  .gc-details .d-phase.concurrent { background: var(--accent-2); color: var(--bg); }
+  .gc-details .d-phase.alloc { background: var(--purple); color: var(--bg); }
+  .gc-details .d-phase.aux { background: var(--warning); color: var(--bg); }
+  .gc-details h4 {
+    color: var(--accent);
+    margin: 0 0 6px 0;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 1.05rem;
+  }
+  .gc-details .d-file {
+    color: var(--muted);
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    margin-bottom: 12px;
+  }
+  .gc-details .d-desc {
+    font-size: 0.92rem;
+    line-height: 1.6;
+    margin-bottom: 12px;
+  }
+  .gc-details .d-hint {
+    font-size: 0.82rem;
+    color: var(--muted);
+    font-style: italic;
+    padding: 10px;
+    background: var(--surface-2);
+    border-radius: 6px;
+    border-left: 3px solid var(--accent-2);
+  }
+  .gc-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .gc-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .gc-legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    border: 2px solid;
+  }
+
+  @media (max-width: 900px) {
+    .gc-loop-wrapper { grid-template-columns: 1fr; }
+    .gc-details { position: static; }
+    .gc-ring { height: 500px; }
+    .gc-loop-stage { min-height: 520px; }
+    .gc-node { font-size: 0.68rem; padding: 6px 8px; }
+  }
+  .call-chain {
+    background: var(--surface-2);
+    border-left: 4px solid var(--pink);
+    padding: 12px 18px;
+    border-radius: 6px;
+    margin: 12px 0;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 0.88rem;
+  }
+  .label-stw {
+    background: var(--danger);
+    color: var(--bg);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: bold;
+  }
+  .label-concurrent {
+    background: var(--accent-2);
+    color: var(--bg);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Go GC — Source Code Walkthrough</h1>
+  <p>How garbage collection actually works inside the Go runtime</p>
+</header>
+
+<main>
+
+<!-- ================= TOP: Interactive End-to-End Flow ================= -->
+<section id="flow-top">
+  <h2>End-to-End Call Flow <span class="muted" style="font-size:0.9rem">(interactive overview)</span></h2>
+  <p>Before diving into code, here's the complete GC cycle as a loop. Each box is a real runtime function. <strong>Click any node</strong> to see what it does, where it lives in the source, and why it matters. The numbers <strong>1 → 12</strong> show the traversal order; after 12, the cycle loops back to 1.</p>
+
+  <div class="start-end-legend">
+    <span class="chip"><span class="dot start">1</span> START — cycle begins here</span>
+    <span class="chip"><span class="dot end">12</span> END — back to _GCoff, loop repeats</span>
+    <span class="chip" style="color: var(--warning)"><span class="dot" style="background: var(--warning)">★</span> Cross-cutting (fires during multiple phases)</span>
+  </div>
+
+  <div class="gc-loop-wrapper">
+    <div class="gc-loop-stage">
+      <div class="gc-ring" id="gcRing">
+        <svg id="gcSvg" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
+            </marker>
+          </defs>
+          <circle cx="300" cy="300" r="220" fill="none" stroke="#30363d" stroke-width="2" stroke-dasharray="6 6"/>
+        </svg>
+
+        <div class="gc-center">
+          <div class="loop-icon">⟳</div>
+          <div class="loop-text">CYCLE</div>
+        </div>
+
+        <div class="gc-node alloc start" style="left:50%; top:13%;" data-id="mallocgc"><span class="num">1</span>mallocgc()</div>
+        <div class="gc-node alloc" style="left:69%; top:18%;" data-id="gcTrigger"><span class="num">2</span>gcTrigger.test()</div>
+        <div class="gc-node alloc" style="left:84%; top:32%;" data-id="gcStart"><span class="num">3</span>gcStart()</div>
+        <div class="gc-node stw" style="left:90%; top:50%;" data-id="stw1"><span class="num">4</span>stopTheWorld #1</div>
+        <div class="gc-node stw" style="left:84%; top:68%;" data-id="setGCPhase"><span class="num">5</span>setGCPhase(_GCmark)</div>
+        <div class="gc-node concurrent" style="left:69%; top:82%;" data-id="gcBgMarkWorker"><span class="num">6</span>gcBgMarkWorker()</div>
+        <div class="gc-node concurrent" style="left:50%; top:87%;" data-id="gcDrain"><span class="num">7</span>gcDrain()</div>
+        <div class="gc-node concurrent" style="left:31%; top:82%;" data-id="scanobject"><span class="num">8</span>scanobject()</div>
+        <div class="gc-node concurrent" style="left:16%; top:68%;" data-id="greyobject"><span class="num">9</span>greyobject()</div>
+        <div class="gc-node stw" style="left:10%; top:50%;" data-id="gcMarkTermination"><span class="num">10</span>gcMarkTermination()</div>
+        <div class="gc-node concurrent" style="left:16%; top:32%;" data-id="gcSweep"><span class="num">11</span>gcSweep()</div>
+        <div class="gc-node concurrent end" style="left:31%; top:18%;" data-id="sweepone"><span class="num">12</span>sweepone()</div>
+
+        <div class="gc-node aux" style="left:50%; top:37%;" data-id="writeBarrier"><span class="num">★</span>gcWriteBarrier()</div>
+        <div class="gc-node aux" style="left:62%; top:50%;" data-id="wbBufFlush"><span class="num">★</span>wbBufFlush1()</div>
+        <div class="gc-node aux" style="left:50%; top:63%;" data-id="gcAssistAlloc"><span class="num">★</span>gcAssistAlloc()</div>
+        <div class="gc-node aux" style="left:38%; top:50%;" data-id="gcController"><span class="num">★</span>gcController.pacer</div>
+      </div>
+
+      <div class="gc-legend">
+        <div class="gc-legend-item"><span class="gc-legend-swatch" style="border-color: var(--purple)"></span>Allocation</div>
+        <div class="gc-legend-item"><span class="gc-legend-swatch" style="border-color: var(--danger)"></span>STW</div>
+        <div class="gc-legend-item"><span class="gc-legend-swatch" style="border-color: var(--accent-2)"></span>Concurrent</div>
+        <div class="gc-legend-item"><span class="gc-legend-swatch" style="border-color: var(--warning); border-style: dashed;"></span>Cross-cutting</div>
+      </div>
+    </div>
+
+    <div class="gc-details" id="gcDetails">
+      <span class="d-phase alloc">START HERE</span>
+      <h4>Click a node</h4>
+      <div class="d-file">— runtime source walkthrough —</div>
+      <div class="d-desc">
+        The diagram on the left shows Go's GC as a continuous loop. Each box is a real runtime function. Click any box to learn what it does, which file it lives in, and where it fits in the cycle.
+      </div>
+      <div class="d-hint">
+        💡 <strong>Tip:</strong> The 4 dashed boxes in the middle (write barrier, assist, pacer) are cross-cutting — they fire DURING multiple phases, not at a single point.
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:30px">Key Call Chains to Remember</h3>
+  <div class="call-chain"><strong>Allocation →</strong> mallocgc() → nextFreeFast() → (maybe) gcStart()</div>
+  <div class="call-chain"><strong>Start of cycle →</strong> gcStart() → stopTheWorldWithSema() → setGCPhase(_GCmark) → startTheWorldWithSema()</div>
+  <div class="call-chain"><strong>Marking →</strong> gcBgMarkWorker() → gcDrain() → scanobject() → greyobject()</div>
+  <div class="call-chain"><strong>Write barrier →</strong> compiler stub → gcWriteBarrier (asm) → wbBufFlush1()</div>
+  <div class="call-chain"><strong>Assist →</strong> mallocgc() → gcAssistAlloc() → gcDrainN()</div>
+  <div class="call-chain"><strong>Termination →</strong> gcMarkDone() → gcMarkTermination() → gcSweep()</div>
+  <div class="call-chain"><strong>Sweeping →</strong> bgsweep() OR mcache.refill() → sweepone()</div>
+  <div class="call-chain"><strong>Pacing →</strong> gcController.endCycle() → PI update → gcController.commit() → new trigger</div>
+
+  <div class="callout success" style="margin-top:20px">
+    <strong>How to trace this yourself:</strong>
+    <pre><code>GODEBUG=gctrace=1,gcpacertrace=1 ./your-app</code></pre>
+    This prints every phase transition and pacer decision. Combine with <code>go tool trace</code> for a visual timeline showing goroutine blocks, STW ranges, and marker activity.
+  </div>
+
+<script>
+(function() {
+  const nodeInfo = {
+    mallocgc: { phase: "alloc", phaseLabel: "ALLOCATION", title: "mallocgc()", file: "runtime/malloc.go", desc: "The single entry point for every heap allocation in Go. Called by new(), make(), and escape-analyzed struct literals. First checks the per-P mcache for a free slot (fast path). If we're mid-GC, forces the calling goroutine to pay assist work before returning memory. At the end, tests if heap growth has crossed the trigger — if yes, kicks off a new cycle.", hint: "If your program rarely allocates, mallocgc is cheap. If it allocates hot, this is where most GC cost shows up." },
+    gcTrigger: { phase: "alloc", phaseLabel: "ALLOCATION", title: "gcTrigger.test()", file: "runtime/mgc.go", desc: "Evaluates whether the conditions are met to start a new GC cycle. There are three trigger kinds: gcTriggerHeap (heap reached target), gcTriggerTime (>2 min since last GC — sysmon forces it), and gcTriggerCycle (user-forced via runtime.GC()).", hint: "The heap trigger is computed by the pacer and typically fires slightly before heapGoal, giving the marker runway to finish." },
+    gcStart: { phase: "alloc", phaseLabel: "CYCLE START", title: "gcStart()", file: "runtime/mgc.go", desc: "The unified entry point that kicks off a GC cycle. Acquires work.startSema to prevent concurrent starts, finishes any lingering sweep, stops the world, enables the write barrier, wakes up mark workers, prepares root scanning, then resumes the world — all in one function.", hint: "This is the single most important function to read if you want to understand GC sequencing." },
+    stw1: { phase: "stw", phaseLabel: "STW #1 — SWEEP TERMINATION", title: "stopTheWorldWithSema()", file: "runtime/proc.go", desc: "Briefly pauses all goroutines by setting sched.gcwaiting=1, calling preemptall() to signal every P, then waiting until each P has reached a safe point and entered _Pgcstop state. Since Go 1.14, uses SIGURG for asynchronous preemption, so tight loops no longer block STW.", hint: "Typical duration: 50–500 microseconds. This is Go's headline feature vs older JVM collectors." },
+    setGCPhase: { phase: "stw", phaseLabel: "STW #1 — PREPARE MARK", title: "setGCPhase(_GCmark)", file: "runtime/mgc.go", desc: "Atomically flips the global gcphase variable to _GCmark and sets writeBarrier.enabled = true. From this moment, every pointer store in user code runs through the compiler-inserted write barrier stub. Fence ensures all Ps see the new phase before STW ends.", hint: "Outside of _GCmark / _GCmarktermination, pointer writes are plain stores — zero overhead." },
+    gcBgMarkWorker: { phase: "concurrent", phaseLabel: "CONCURRENT MARK", title: "gcBgMarkWorker()", file: "runtime/mgc.go", desc: "A dedicated goroutine launched per P at runtime startup. Normally parked. When GC starts, the pacer wakes workers in one of three modes: Dedicated (25% of CPUs, run until preempted), Fractional (partial core), or Idle (only when P has nothing else to do).", hint: "You can see these in pprof as goroutines blocked in gopark with reason 'GC worker (idle)'." },
+    gcDrain: { phase: "concurrent", phaseLabel: "CONCURRENT MARK", title: "gcDrain()", file: "runtime/mgcmark.go", desc: "The heart of marking. Loops while there is work: first dispatches any pending root-scan jobs (globals, goroutine stacks, finalizers), then pulls grey objects off the per-P work queue and scans each one. Yields on preemption so the mutator keeps running.", hint: "Work is stolen between Ps' gcWork queues to balance load — classic work-stealing scheduler pattern." },
+    scanobject: { phase: "concurrent", phaseLabel: "CONCURRENT MARK", title: "scanobject()", file: "runtime/mgcmark.go", desc: "Scans a single object's memory for pointers using its heap bitmap metadata (which Go knows precisely via type info from the compiler). For every pointer slot, looks up the target object and calls greyobject() on it. Processes objects in chunks up to maxObletBytes to keep responsiveness.", hint: "'Precise' GC means Go knows which bytes are pointers vs ints — no conservative scanning like C." },
+    greyobject: { phase: "concurrent", phaseLabel: "CONCURRENT MARK", title: "greyobject()", file: "runtime/mgcmark.go", desc: "Flips the target object's mark bit (making it reachable) and pushes it onto the current P's gcWork queue so it will be scanned later. If already marked, does nothing. This is where the tri-color 'grey' state is created: marked + awaiting scan.", hint: "Only 1 bit per object is used. WHITE=unmarked. GREY=marked+in queue. BLACK=marked+not in queue." },
+    gcMarkTermination: { phase: "stw", phaseLabel: "STW #2 — MARK TERMINATION", title: "gcMarkTermination()", file: "runtime/mgc.go", desc: "Triggered when gcMarkDone() finds all workers idle and all queues empty. Stops the world again briefly. Flushes every P's mcache to account for final allocations, drains any last writes from the write barrier buffer, sets gcphase=_GCoff (disabling write barrier), kicks off the sweep, and updates the pacer for the next cycle.", hint: "Typical duration: under 100 microseconds. This is the second (and last) STW pause." },
+    gcSweep: { phase: "concurrent", phaseLabel: "CONCURRENT SWEEP", title: "gcSweep()", file: "runtime/mgcsweep.go", desc: "Transitions to the sweep phase after mark termination. Does NOT sweep everything immediately — instead sets up background sweeper goroutines (bgsweep) and enables on-demand sweeping during future allocations. This laziness is why Go's sweep phase has essentially zero pause cost.", hint: "Spans are only swept when someone needs them. If a span isn't reused before the next cycle, it's swept during that cycle instead." },
+    sweepone: { phase: "concurrent", phaseLabel: "CONCURRENT SWEEP (END → loops to 1)", title: "sweepone()", file: "runtime/mgcsweep.go", desc: "Sweeps one span at a time. Walks the span's allocBits/markBits: any slot that is allocated but NOT marked is now garbage, so it's freed to the span's free list. If the entire span is empty, returns it to mheap for reuse. After this, the system is back in _GCoff waiting for the next allocation to trigger a new cycle at node #1.", hint: "This is the cycle's END. The loop closes here — the next allocation in mallocgc() may start another cycle." },
+    writeBarrier: { phase: "aux", phaseLabel: "CROSS-CUTTING", title: "gcWriteBarrier()", file: "runtime/mbarrier.go + asm_amd64.s", desc: "The compiler inserts a call to this around every pointer-write when writeBarrier.enabled=true. Implemented in hand-written assembly for speed. Uses the hybrid barrier (Dijkstra insertion + Yuasa deletion) to shade both the old AND the new pointer value, maintaining the tri-color invariant even as goroutines mutate the heap.", hint: "The hybrid barrier is why Go 1.8+ doesn't need to re-scan goroutine stacks at termination — huge STW win." },
+    wbBufFlush: { phase: "aux", phaseLabel: "CROSS-CUTTING", title: "wbBufFlush1()", file: "runtime/mwbbuf.go", desc: "Each P has a small ring buffer (wbBuf, ~256 slots) that collects pointers from the write barrier. When full, this function drains the buffer into the grey queue — shading all the pointers in one batch. Batching avoids the overhead of taking the shade-lock on every pointer write.", hint: "This is a classic 'log and flush' design — trade tiny latency for huge throughput gains on hot pointer writes." },
+    gcAssistAlloc: { phase: "aux", phaseLabel: "CROSS-CUTTING", title: "gcAssistAlloc()", file: "runtime/mgcmark.go", desc: "If the mutator allocates faster than background workers can mark, it would outrun the GC. To prevent this, allocating goroutines are forced to pay a debt: scan a proportional amount of grey objects before their allocation returns. This keeps marking on pace with allocation.", hint: "High gcAssistAlloc time in pprof = you're allocating too fast. Fix: reduce allocations or use sync.Pool." },
+    gcController: { phase: "aux", phaseLabel: "CROSS-CUTTING", title: "gcController (pacer)", file: "runtime/mgcpacer.go", desc: "The PI (Proportional-Integral) controller that decides WHEN each cycle starts. Observes allocation rate, scan rate, and previous cycle's overshoot; computes a new trigger point so the next mark finishes just as the heap reaches its goal. Redesigned in Go 1.18 using control-theory math.", hint: "GODEBUG=gcpacertrace=1 prints every decision the pacer makes — fascinating to watch under load." }
+  };
+
+  const detailsEl = document.getElementById('gcDetails');
+  const nodes = document.querySelectorAll('.gc-node');
+
+  function renderDetails(info) {
+    detailsEl.innerHTML =
+      '<span class="d-phase ' + info.phase + '">' + info.phaseLabel + '</span>' +
+      '<h4>' + info.title + '</h4>' +
+      '<div class="d-file">' + info.file + '</div>' +
+      '<div class="d-desc">' + info.desc + '</div>' +
+      '<div class="d-hint">💡 ' + info.hint + '</div>';
+  }
+
+  nodes.forEach(function(n) {
+    n.addEventListener('click', function() {
+      nodes.forEach(function(x) { x.classList.remove('active'); });
+      n.classList.add('active');
+      const id = n.getAttribute('data-id');
+      const info = nodeInfo[id];
+      if (info) renderDetails(info);
+    });
+  });
+
+  const tourOrder = ['mallocgc','gcTrigger','gcStart','stw1','setGCPhase','gcBgMarkWorker','gcDrain','scanobject','greyobject','gcMarkTermination','gcSweep','sweepone'];
+  let tourIdx = 0;
+  let tourActive = true;
+
+  function tick() {
+    if (!tourActive) return;
+    nodes.forEach(function(x) { x.classList.remove('active'); });
+    const id = tourOrder[tourIdx];
+    const node = document.querySelector('.gc-node[data-id="' + id + '"]');
+    if (node) {
+      node.classList.add('active');
+      const info = nodeInfo[id];
+      if (info) renderDetails(info);
+    }
+    tourIdx = (tourIdx + 1) % tourOrder.length;
+  }
+
+  nodes.forEach(function(n) {
+    n.addEventListener('click', function() { tourActive = false; });
+  });
+
+  setInterval(tick, 2800);
+  tick();
+})();
+</script>
+</section>
+
+<nav class="toc">
+  <h2>Table of Contents</h2>
+  <ul>
+    <li><a href="#flow-top">Interactive End-to-End Flow (top of page)</a></li>
+    <li><a href="#map">1. The Runtime Source Map</a></li>
+    <li><a href="#entry">2. Entry Point — Where GC Begins</a></li>
+    <li><a href="#state">3. The GC State Machine (gcphase)</a></li>
+    <li><a href="#start">4. gcStart — Kicking Off a Cycle</a></li>
+    <li><a href="#stw">5. STW — How the World Actually Stops</a></li>
+    <li><a href="#mark">6. Concurrent Mark — The Work Queue</a></li>
+    <li><a href="#barrier">7. The Write Barrier in Code</a></li>
+    <li><a href="#termination">8. Mark Termination</a></li>
+    <li><a href="#sweep">9. Sweep — Lazy Reclamation</a></li>
+    <li><a href="#pacer">10. The Pacer Controller</a></li>
+    <li><a href="#alloc">11. Allocation Path — mallocgc</a></li>
+  </ul>
+</nav>
+
+<!-- ================= 1 ================= -->
+<section id="map">
+  <h2>1. The Runtime Source Map</h2>
+  <p>The Go garbage collector lives in <code>$GOROOT/src/runtime/</code>. Here are the key files you'll encounter:</p>
+
+  <table>
+    <tr><th>File</th><th>Purpose</th></tr>
+    <tr><td><code>mgc.go</code></td><td>Main GC state machine — orchestrates the cycle</td></tr>
+    <tr><td><code>mgcmark.go</code></td><td>Mark phase: root scanning, object scanning, greyobject</td></tr>
+    <tr><td><code>mgcsweep.go</code></td><td>Sweep phase: reclaiming unmarked objects</td></tr>
+    <tr><td><code>mgcpacer.go</code></td><td>The PI controller that decides WHEN to GC</td></tr>
+    <tr><td><code>mbarrier.go</code></td><td>Write barrier implementation</td></tr>
+    <tr><td><code>mwbbuf.go</code></td><td>Write barrier buffer (per-P queue for shaded pointers)</td></tr>
+    <tr><td><code>malloc.go</code></td><td>Allocation entry point (mallocgc) — triggers GC assist</td></tr>
+    <tr><td><code>mheap.go</code></td><td>Heap management, spans, size classes</td></tr>
+    <tr><td><code>mcache.go</code></td><td>Per-P allocator cache</td></tr>
+    <tr><td><code>mcentral.go</code></td><td>Central free list for each size class</td></tr>
+    <tr><td><code>proc.go</code></td><td>stopTheWorld / startTheWorld live here</td></tr>
+  </table>
+
+  <div class="callout info">
+    <strong>Tip:</strong> Clone the Go source (<code>git clone https://go.googlesource.com/go</code>) and grep through <code>src/runtime/mgc*.go</code> — reading it alongside this guide is the fastest way to internalize the flow.
+  </div>
+</section>
+
+<!-- ================= 2 ================= -->
+<section id="entry">
+  <h2>2. Entry Point — Where GC Begins</h2>
+  <p>GC is not a single function — it's a cooperative dance between three actors:</p>
+
+  <div class="grid">
+    <div class="card"><strong>The Mutator</strong><br/>Your goroutines. They allocate memory and may be forced to assist when allocation is fast.</div>
+    <div class="card"><strong>Background Workers</strong><br/>Dedicated goroutines launched per P. They run <code>gcBgMarkWorker</code> and mark objects.</div>
+    <div class="card"><strong>Sysmon</strong><br/>The runtime monitor thread. Forces GC if none has run in 2 minutes.</div>
+  </div>
+
+  <p>All three paths eventually call <code>gcStart()</code> in <code>mgc.go</code> — the unified entry point.</p>
+
+  <div class="file-header">runtime/malloc.go — allocation may trigger GC</div>
+<pre><code>func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
+    // ... (fast path: pop from mcache) ...
+
+    // Check if we should start a GC cycle
+    if shouldhelpgc {
+        if t := (gcTrigger{kind: gcTriggerHeap}); t.test() {
+            gcStart(t)  // &lt;── GC begins here
+        }
+    }
+    return x
+}
+</code></pre>
+
+  <div class="file-header">runtime/mgc.go — forced GC via runtime.GC()</div>
+<pre><code>// runtime.GC() — user-called forced collection
+func GC() {
+    n := work.cycles.Load()
+    gcWaitOnMark(n)
+    gcStart(gcTrigger{kind: gcTriggerCycle, n: n + 1})
+    gcWaitOnMark(n + 1)
+    // Then trigger sweep to completion
+    ...
+}
+</code></pre>
+</section>
+
+<!-- ================= 3 ================= -->
+<section id="state">
+  <h2>3. The GC State Machine (gcphase)</h2>
+  <p>The runtime tracks a global GC phase. Every goroutine, write barrier, and allocation checks this variable.</p>
+
+  <div class="file-header">runtime/mgc.go</div>
+<pre><code>const (
+    _GCoff             = iota // GC not running; sweeping in background
+    _GCmark                   // GC marking roots and workbufs: allocate black
+    _GCmarktermination        // GC mark termination: allocate black, P's help GC
+)
+
+var gcphase uint32   // global, atomic-accessed
+var writeBarrier struct {
+    enabled bool     // compiler emits write barrier calls?
+    pad     [3]byte
+    needed  bool
+    alignme uint64
+}
+
+// setGCPhase is called whenever the phase transitions
+func setGCPhase(x uint32) {
+    atomic.Store(&gcphase, x)
+    writeBarrier.needed = x == _GCmark || x == _GCmarktermination
+    writeBarrier.enabled = writeBarrier.needed
+}
+</code></pre>
+
+  <div class="callout">
+    <strong>Key insight:</strong> The write barrier is ONLY active during <code>_GCmark</code> and <code>_GCmarktermination</code>. During <code>_GCoff</code>, pointer writes are plain stores — zero overhead.
+  </div>
+</section>
+
+<!-- ================= 4 ================= -->
+<section id="start">
+  <h2>4. gcStart — Kicking Off a Cycle</h2>
+  <p><code>gcStart()</code> is a dense function (~100 lines). Here's a simplified view:</p>
+
+  <div class="file-header">runtime/mgc.go (simplified)</div>
+<pre><code>func gcStart(trigger gcTrigger) {
+    // 1. Lock out other GC triggers
+    semacquire(&work.startSema)
+
+    // 2. Re-check trigger condition (another goroutine might have started GC)
+    if !trigger.test() {
+        semrelease(&work.startSema)
+        return
+    }
+
+    // 3. Complete any pending sweep work before starting a new cycle
+    for trigger.kind == gcTriggerHeap && atomic.Load(&mheap_.sweepgen) == ... {
+        sweep.nbgsweep++
+        Gosched()
+    }
+
+    // 4. Start the STW phase — "sweep termination"
+    systemstack(stopTheWorldWithSema)  // ── STW BEGINS
+
+    // 5. Finish remaining sweep work
+    systemstack(func() {
+        finishsweep_m()
+    })
+
+    // 6. Prepare for marking: clear work buffers, scan counters
+    work.cycles.Add(1)
+    gcController.startCycle(...)
+    work.heap0 = gcController.heapLive.Load()
+
+    // 7. Enable write barrier — compiler emits checks for writeBarrier.enabled
+    setGCPhase(_GCmark)
+
+    // 8. Start background mark workers (one per P)
+    gcBgMarkStartWorkers()
+
+    // 9. Mark roots: globals, finalizers, bss, data
+    gcMarkRootPrepare()
+
+    // 10. Mark all currently running Gs as having "dirty" stacks
+    gcMarkTinyAllocs()
+
+    // 11. Resume the world — marking proceeds concurrently
+    systemstack(startTheWorldWithSema)  // ── STW ENDS
+}
+</code></pre>
+
+  <p>After <code>gcStart</code> returns, the world is running again but in <code>_GCmark</code> phase. Background workers begin consuming the work queue.</p>
+</section>
+
+<!-- ================= 5 ================= -->
+<section id="stw">
+  <h2>5. STW — How the World Actually Stops</h2>
+  <p>Stop-the-world is misleadingly named. The runtime doesn't halt execution mid-instruction — it <strong>waits for every goroutine to reach a safe point</strong>.</p>
+
+  <div class="file-header">runtime/proc.go (simplified)</div>
+<pre><code>func stopTheWorldWithSema() {
+    gp := getg()
+
+    // 1. Set a global flag requesting all Ps to yield
+    sched.stopwait = gomaxprocs
+    atomic.Store(&sched.gcwaiting, 1)
+
+    // 2. Preempt all running goroutines
+    preemptall()
+
+    // 3. Stop each P when it reaches a safe point
+    for _, pp := range allp {
+        s := pp.status
+        if s == _Prunning && atomic.Cas(&pp.status, s, _Pgcstop) {
+            sched.stopwait--
+        }
+    }
+
+    // 4. Wait until all Ps have stopped
+    if sched.stopwait != 0 {
+        for {
+            // Re-preempt if any P still running
+            if notetsleep(&sched.stopnote, 100*1000) {
+                break
+            }
+            preemptall()
+        }
+    }
+}
+</code></pre>
+
+  <h3>How Safe Points Work</h3>
+  <p>Since Go 1.14, goroutines are <strong>asynchronously preemptible</strong>. The runtime sends a <code>SIGURG</code> signal to threads running Go code. The signal handler checks <code>gp.preempt</code> and parks the goroutine.</p>
+
+  <div class="callout success">
+    <strong>Before Go 1.14:</strong> preemption only happened at function calls. A tight loop with no calls could block GC indefinitely. Signal-based preemption fixed this.
+  </div>
+</section>
+
+<!-- ================= 6 ================= -->
+<section id="mark">
+  <h2>6. Concurrent Mark — The Work Queue <span class="label-concurrent">CONCURRENT</span></h2>
+  <p>Marking is driven by a <strong>producer-consumer work queue</strong> of grey objects. Workers dequeue grey objects, scan their pointers, enqueue newly-found grey objects, then mark them black.</p>
+
+  <div class="file-header">runtime/mgcmark.go — the mark worker loop</div>
+<pre><code>func gcBgMarkWorker() {
+    gp := getg()
+    for {
+        // Sleep until woken by the pacer
+        gopark(...)
+
+        // Claim mark work based on worker mode
+        switch pp.gcMarkWorkerMode {
+        case gcMarkWorkerDedicatedMode:
+            gcDrain(&pp.gcw, gcDrainUntilPreempt|gcDrainFlushBgCredit)
+        case gcMarkWorkerFractionalMode:
+            gcDrain(&pp.gcw, gcDrainFractional|gcDrainUntilPreempt|gcDrainFlushBgCredit)
+        case gcMarkWorkerIdleMode:
+            gcDrain(&pp.gcw, gcDrainIdle|gcDrainUntilPreempt|gcDrainFlushBgCredit)
+        }
+
+        // Check if all work is done
+        if gcMarkDone() {
+            gcMarkTermination()  // &lt;── Triggers STW mark termination
+        }
+    }
+}
+</code></pre>
+
+  <h3>gcDrain — The Actual Marking Loop</h3>
+  <div class="file-header">runtime/mgcmark.go (simplified)</div>
+<pre><code>func gcDrain(gcw *gcWork, flags gcDrainFlags) {
+    // 1. First, scan any global/stack roots that need processing
+    for work.markrootNext &lt; work.markrootJobs {
+        job := atomic.Xadd(&work.markrootNext, 1) - 1
+        markroot(gcw, job)
+    }
+
+    // 2. Drain the grey work queue
+    for !(preemptible && gp.preempt) {
+        // Take next grey object from workbuf
+        b := gcw.tryGet()
+        if b == 0 {
+            break  // No work left
+        }
+        scanobject(b, gcw)  // Scan its pointers, greying children
+    }
+}
+</code></pre>
+
+  <h3>scanobject — Greying Children</h3>
+  <div class="file-header">runtime/mgcmark.go (simplified)</div>
+<pre><code>func scanobject(b uintptr, gcw *gcWork) {
+    // Look up type metadata to know which fields are pointers
+    s := spanOfUnchecked(b)
+    hbits := heapBitsForAddr(b)
+    n := s.elemsize
+
+    // Walk each potential pointer slot
+    for i := uintptr(0); i &lt; n; i += goarch.PtrSize {
+        if hbits.isPointer() {
+            obj := *(*uintptr)(unsafe.Pointer(b + i))
+            if obj != 0 && inheap(obj) {
+                if obj, span, objIndex := findObject(obj, b, i); obj != 0 {
+                    greyobject(obj, b, i, span, gcw, objIndex)
+                }
+            }
+        }
+        hbits = hbits.next()
+    }
+}
+
+func greyobject(obj, base, off uintptr, span *mspan, gcw *gcWork, objIndex uintptr) {
+    mbits := span.markBitsForIndex(objIndex)
+    if mbits.isMarked() {
+        return  // Already grey or black — skip
+    }
+    mbits.setMarked()  // Mark it
+    gcw.putFast(obj)   // Enqueue for scanning (grey)
+}
+</code></pre>
+
+  <div class="callout info">
+    <strong>Note on "color":</strong> Go doesn't literally store three colors. It uses a single <em>mark bit</em> per object. WHITE = unmarked. GREY = marked AND in a work queue. BLACK = marked AND not in any queue. This is clever and space-efficient.
+  </div>
+</section>
+
+<!-- ================= 7 ================= -->
+<section id="barrier">
+  <h2>7. The Write Barrier in Code</h2>
+  <p>The Go compiler inserts a call to <code>gcWriteBarrier</code> around every pointer store when <code>writeBarrier.enabled == true</code>.</p>
+
+  <div class="file-header">runtime/mbarrier.go — the hybrid barrier</div>
+<pre><code>// gcWriteBarrier is the compiler-inserted entry point.
+// src/runtime/asm_amd64.s contains the hand-written assembly.
+// It ultimately calls:
+
+func wbBufFlush1(pp *p) {
+    // Drain the per-P write barrier buffer into the grey queue
+    buf := &pp.wbBuf
+    n := buf.next - buf.end
+    ptrs := buf.buf[:n]
+
+    for _, ptr := range ptrs {
+        obj, span, objIndex := findObject(ptr, 0, 0)
+        if obj == 0 {
+            continue
+        }
+        mbits := span.markBitsForIndex(objIndex)
+        if mbits.isMarked() {
+            continue
+        }
+        mbits.setMarked()  // Shade it
+        gcw.putFast(obj)   // Enqueue
+    }
+    buf.reset()
+}
+</code></pre>
+
+  <h3>The Hybrid Barrier Logic (Conceptual)</h3>
+  <div class="file-header">What the compiler emits for: slot = ptr</div>
+<pre><code>// Pseudocode for "slot = ptr" when write barrier is on:
+if writeBarrier.enabled {
+    // Dijkstra insertion: shade the new value
+    shade(ptr)
+    // Yuasa deletion: shade the old value
+    shade(*slot)
+}
+*slot = ptr
+</code></pre>
+
+  <div class="callout success">
+    <strong>Why both insertion AND deletion?</strong> The insertion barrier alone requires re-scanning goroutine stacks at mark termination (expensive STW). The deletion barrier lets stacks stay BLACK permanently after initial scan. The hybrid gets the best of both — zero stack re-scan, low overhead.
+  </div>
+
+  <h3>The Per-P Write Barrier Buffer</h3>
+  <p>Calling <code>shade</code> on every write would be slow. Instead, Go uses a <strong>per-P ring buffer</strong> (<code>wbBuf</code>) that batches pointers. When the buffer fills, it's flushed into the global work queue.</p>
+
+  <div class="file-header">runtime/mwbbuf.go</div>
+<pre><code>type wbBuf struct {
+    next uintptr       // Pointer into buf[]
+    end  uintptr       // End of buf[]
+    buf  [wbBufEntries]uintptr  // ~256 pointer slots
+}
+</code></pre>
+</section>
+
+<!-- ================= 8 ================= -->
+<section id="termination">
+  <h2>8. Mark Termination <span class="label-stw">STW</span></h2>
+  <p>When <code>gcMarkDone()</code> determines all workers are idle AND all work buffers are empty, it transitions into mark termination.</p>
+
+  <div class="file-header">runtime/mgc.go (simplified)</div>
+<pre><code>func gcMarkTermination() {
+    // 1. Stop the world (again, briefly)
+    systemstack(stopTheWorldWithSema)
+
+    // 2. Flush all mcaches — forces final allocations to be accounted
+    systemstack(func() {
+        forEachP(func(pp *p) {
+            pp.mcache.prepareForSweep()
+        })
+    })
+
+    // 3. Drain any last work added by write barriers during the STW transition
+    gcMark(startTime)
+
+    // 4. Transition to off-phase; disable write barrier
+    setGCPhase(_GCoff)
+
+    // 5. Begin the sweep phase
+    gcSweep(work.mode)
+
+    // 6. Update GC controller state for pacing
+    gcController.endCycle(...)
+
+    // 7. Resume the world
+    systemstack(startTheWorldWithSema)
+}
+</code></pre>
+
+  <div class="callout warning">
+    <strong>Typical duration:</strong> The entire mark termination STW is usually 50–500µs. Most of it is flushing mcaches and bookkeeping, NOT marking (that's essentially done).
+  </div>
+</section>
+
+<!-- ================= 9 ================= -->
+<section id="sweep">
+  <h2>9. Sweep — Lazy Reclamation <span class="label-concurrent">CONCURRENT</span></h2>
+  <p>After the mark is finished, every unmarked (WHITE) object is garbage. Sweep reclaims them — but <strong>lazily, per-span, on demand</strong>.</p>
+
+  <div class="file-header">runtime/mgcsweep.go (simplified)</div>
+<pre><code>func sweepone() uintptr {
+    // Find the next span that needs sweeping
+    s := mheap_.central[spc].mcentral.partialUnswept(sg).pop()
+    if s == nil {
+        return ^uintptr(0)  // No work
+    }
+
+    // Walk the span's mark bits
+    nfree := 0
+    for i := uintptr(0); i &lt; s.nelems; i++ {
+        if !s.markBitsForIndex(i).isMarked() {
+            // Object was NOT marked → it's garbage → free slot
+            s.freeindex = i
+            nfree++
+        }
+    }
+
+    // Return span to free pool or keep for reuse
+    if s.allocCount == 0 {
+        mheap_.freeSpan(s)
+    }
+    return uintptr(nfree)
+}
+</code></pre>
+
+  <h3>Two Sweep Drivers</h3>
+  <ul>
+    <li><strong>Background sweeper</strong> — a dedicated goroutine (<code>bgsweep</code>) slowly processes spans.</li>
+    <li><strong>On-demand sweep</strong> — when a goroutine allocates and its mcache needs refilling, it first sweeps the span it's about to use.</li>
+  </ul>
+
+  <div class="callout">
+    <strong>Why lazy?</strong> Eager sweep would waste CPU sweeping memory that nobody needs yet. Lazy sweep amortizes the cost across allocations that actually happen.
+  </div>
+</section>
+
+<!-- ================= 10 ================= -->
+<section id="pacer">
+  <h2>10. The Pacer Controller</h2>
+  <p>The pacer is the "brain" of the GC. It answers: <em>when should we start the next cycle, and how much CPU should workers get?</em></p>
+
+  <div class="file-header">runtime/mgcpacer.go (simplified)</div>
+<pre><code>type gcControllerState struct {
+    // Target heap size for next GC, in bytes
+    heapGoal atomic.Uint64
+
+    // Live heap bytes at end of last mark
+    heapMarked uint64
+
+    // Bytes allocated since start of GC
+    heapLive atomic.Uint64
+
+    // PI controller state
+    consMark         float64  // Estimated mark cost (CPU/byte)
+    scannableStackSize atomic.Uint64
+    gcPercent        atomic.Int32  // GOGC value
+
+    // Heap trigger point (gcStart fires when heapLive reaches this)
+    trigger atomic.Uint64
+}
+
+func (c *gcControllerState) endCycle(now int64, procs int, userForced bool) {
+    // PI controller: adjust consMark based on actual vs predicted work
+    currentConsMark := (float64(c.heapScanWork) * assistRatio) / ...
+
+    // Update estimate with proportional + integral terms
+    oldConsMark := c.consMark
+    c.consMark = oldConsMark + gcControllerKp*(currentConsMark-oldConsMark) + ...
+}
+
+func (c *gcControllerState) commit() {
+    // Compute heap goal from GOGC
+    goal := c.heapMarked + c.heapMarked*uint64(c.gcPercent.Load())/100
+
+    // Trigger earlier than goal so marking finishes in time
+    runway := c.consMark * float64(c.scannableStackSize.Load()) / (1 - gcGoalUtilization)
+    trigger := goal - uint64(runway)
+
+    c.trigger.Store(trigger)
+    c.heapGoal.Store(goal)
+}
+</code></pre>
+
+  <div class="callout info">
+    <strong>PI controller in plain English:</strong>
+    <ul>
+      <li><strong>P (Proportional):</strong> if this cycle overshot the target, trigger earlier next time by a proportional amount.</li>
+      <li><strong>I (Integral):</strong> if overshoots keep happening, accumulate the bias and push trigger even earlier.</li>
+    </ul>
+    Same math airplanes and thermostats use. It's remarkable that a GC trigger is a control-theory problem.
+  </div>
+</section>
+
+<!-- ================= 11 ================= -->
+<section id="alloc">
+  <h2>11. Allocation Path — mallocgc</h2>
+  <p>Every <code>new()</code>, <code>make()</code>, and struct literal that escapes to the heap goes through <code>mallocgc</code>. This function is also where <strong>mutator assist</strong> is enforced.</p>
+
+  <div class="file-header">runtime/malloc.go (heavily simplified)</div>
+<pre><code>func mallocgc(size uintptr, typ *_type, needzero bool) unsafe.Pointer {
+    mp := acquirem()
+
+    // 1. If GC is running and we're allocating fast, help with marking
+    assistG := (*g)(nil)
+    if gcBlackenEnabled != 0 {
+        assistG = getg()
+        assistG.gcAssistBytes -= int64(size)
+        if assistG.gcAssistBytes &lt; 0 {
+            gcAssistAlloc(assistG)   // &lt;── MUTATOR ASSIST
+        }
+    }
+
+    // 2. Fast path: allocate from the per-P mcache
+    c := getMCache(mp)
+    var span *mspan
+    var x unsafe.Pointer
+
+    if size &lt;= maxSmallSize {
+        // Small object path (most allocations)
+        sizeclass := size_to_class[divRoundUp(size, smallSizeDiv)]
+        span = c.alloc[sizeclass]
+        v := nextFreeFast(span)
+        if v == 0 {
+            v, span, shouldhelpgc = c.nextFree(sizeclass)
+        }
+        x = unsafe.Pointer(v)
+    } else {
+        // Large object path (&gt; 32 KB) — directly from mheap
+        span = c.allocLarge(size, noscan)
+        x = unsafe.Pointer(span.base())
+    }
+
+    // 3. If this allocation might have crossed the GC trigger, start a cycle
+    if shouldhelpgc {
+        if t := (gcTrigger{kind: gcTriggerHeap}); t.test() {
+            gcStart(t)
+        }
+    }
+
+    // 4. If we're in mark phase, new objects are born BLACK (already scanned)
+    //    This is called "allocate-black" — prevents new allocations from
+    //    being freed before they can be used.
+    return x
+}
+</code></pre>
+
+  <h3>gcAssistAlloc — Paying for Your Allocation</h3>
+  <div class="file-header">runtime/mgcmark.go</div>
+<pre><code>func gcAssistAlloc(gp *g) {
+    for gp.gcAssistBytes &lt; 0 {
+        // How much scan work does this goroutine owe?
+        scanWork := int64(-gp.gcAssistBytes) * int64(gcController.assistWorkPerByte.Load())
+
+        // Do the work — scan some grey objects yourself
+        workDone := gcDrainN(&getg().m.p.ptr().gcw, scanWork)
+
+        // Credit back
+        gp.gcAssistBytes += int64(workDone) / int64(gcController.assistBytesPerWork.Load())
+    }
+}
+</code></pre>
+
+  <div class="callout warning">
+    <strong>Real-world impact:</strong> If your service is spending a lot of time in <code>runtime.gcAssistAlloc</code> (visible in pprof CPU profiles), you're allocating faster than the GC can keep up. Options: reduce allocation rate, increase <code>GOGC</code>, or use <code>sync.Pool</code>.
+  </div>
+</section>
+
+
+</main>
+
+<footer>
+  <p>Understand it once — optimize Go services forever</p>
+  <p>#Golang #GoRuntime #GarbageCollection #SourceCodeDive #SystemsProgramming</p>
+</footer>
+
+</body>
+</html>
